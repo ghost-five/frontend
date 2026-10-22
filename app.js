@@ -34,7 +34,7 @@
 
   // ---------- Settings (per browser) ----------
   const S = {
-    opp: 'bot', theme: 'auto', palette: 'classic', logOpen: true, sound: true, volume: 70,
+    opp: 'bot', theme: 'auto', palette: 'classic', logOpen: true, rulesOpen: false, sound: true, volume: 70,
     size: 13, win: 4, secret: true, wallTtl: 5, mem: 8, anchor: true, shots: 1, capture: false, timer: 0, bank: 60,
     look: { 1: { color: 'cobalt', shape: 'circle' }, 2: { color: 'coral', shape: 'diamond' } }
   };
@@ -43,7 +43,7 @@
   try {
     const saved = JSON.parse(lsGet('ghost5-settings') || 'null');
     if (saved && typeof saved === 'object') {
-      for (const k of ['opp', 'theme', 'palette', 'logOpen', 'sound', 'volume'].concat(CFG_KEYS)) if (k in saved) S[k] = saved[k];
+      for (const k of ['opp', 'theme', 'palette', 'logOpen', 'rulesOpen', 'sound', 'volume'].concat(CFG_KEYS)) if (k in saved) S[k] = saved[k];
       for (const p of [1, 2]) {
         const l = saved.look && saved.look[p];
         if (l && COLORS.some((c) => c.id === l.color)) S.look[p].color = l.color;
@@ -1711,7 +1711,7 @@
   function placeRules(route) {
     const card = $('rulesCard');
     const slot = $(route === 'online' ? 'rulesSlotOnline' : 'rulesSlotPlay');
-    if (card.parentElement !== slot) slot.appendChild(card);
+    if (card.parentElement !== slot) { slot.appendChild(card); card.open = route === 'online' || !!S.rulesOpen; }
     $('rulesTitle').textContent = route === 'online' ? 'Правила новой партии' : 'Правила партии';
     // Фишки настраиваются и в разделе «Вид», и прямо по ходу партии.
     const looks = $('looksCard');
@@ -1940,6 +1940,7 @@
     dim('set-bank', !src.timer || locked);
     ['set-size', 'set-win', 'set-secret', 'set-mem', 'set-shots', 'set-capture', 'set-timer'].forEach((id) => $(id).classList.toggle('dim', locked));
     $('rulesCard').classList.toggle('locked', locked);
+    $('rulesBrief').textContent = cfgSummary(src);
     $('rulesNote').textContent = locked ? cfgSummary(src) + '. Правила выбрал создатель партии.'
       : R.route === 'online' ? 'Эти правила получит партия, которую вы создадите.'
       : online() ? 'Партия окончена: эти правила получит следующая.'
@@ -2130,6 +2131,11 @@
   });
   $('cancelGame').addEventListener('click', () => askDelete(O.code));
   $('logPanel').addEventListener('toggle', () => { S.logOpen = $('logPanel').open; save(); });
+  $('rulesCard').addEventListener('toggle', () => {
+    if (R.route === 'online') return;
+    S.rulesOpen = $('rulesCard').open;
+    save();
+  });
   $('actAnchor').addEventListener('click', () => setAction(ui.action === 'anchor' ? 'place' : 'anchor'));
 
   // ---------- Start ----------

@@ -423,7 +423,12 @@ input:focus { outline: 0; border-color: var(--brand); background: var(--surface)
 .log li.burn span { color: color-mix(in srgb, var(--burn) 70%, var(--ink)); }
 .log li.win span { font-weight: 600; }
 /* Свёрнутая карточка: заголовок кликабелен, стрелка показывает состояние */
-.fold > summary { cursor: pointer; list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.fold > summary { cursor: pointer; list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.fold > summary .brief {
+  flex: 1 1 100%; font-family: var(--body); font-size: 12.5px; letter-spacing: 0;
+  text-transform: none; color: var(--muted); font-weight: 400; order: 3;
+}
+.fold[open] > summary .brief { display: none; }
 .fold > summary::-webkit-details-marker { display: none; }
 .fold > summary::after {
   content: ""; width: 7px; height: 7px; flex: none; margin-right: 3px;

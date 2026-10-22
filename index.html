@@ -314,8 +314,8 @@
   </details>
 
   <!-- Правила партии: переезжают на экран игры или в лобби -->
-  <section class="card rules-card" id="rulesCard">
-    <h3 class="card-title" id="rulesTitle">Правила партии</h3>
+  <details class="card fold rules-card" id="rulesCard" open>
+    <summary class="card-title"><span id="rulesTitle">Правила партии</span><span class="brief" id="rulesBrief"></span></summary>
     <div class="setting" id="set-size"><div class="row"><span>Поле</span>
       <div class="seg" data-key="size" data-type="num"><button type="button" data-v="11">11</button><button type="button" data-v="13">13</button><button type="button" data-v="15">15</button></div>
     </div></div>
@@ -356,7 +356,7 @@
       <p class="hint">Зажмите ровно две фишки соперника своими с обеих сторон, и они исчезнут. 5 захваченных пар тоже победа.</p>
     </div>
     <p class="note" id="rulesNote">Смена правил сразу начинает новую партию.</p>
-  </section>
+  </details>
 
 </main>
 
