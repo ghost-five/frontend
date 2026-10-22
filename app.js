@@ -128,6 +128,20 @@
   const colorOf = (p) => COLORS.find((c) => c.id === lookOf(p).color) || COLORS[0];
   const capWord = (s) => s[0].toUpperCase() + s.slice(1);
   const fmtSpan = (sec) => (sec >= 60 ? Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0') : sec + ' с');
+  // Когда в партии последний раз что-то происходило.
+  function fmtWhen(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    const now = new Date();
+    const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    const day = (x) => x.getFullYear() + '-' + x.getMonth() + '-' + x.getDate();
+    const yesterday = new Date(now.getTime() - 86400000);
+    if (day(d) === day(now)) return 'сегодня в ' + time;
+    if (day(d) === day(yesterday)) return 'вчера в ' + time;
+    const date = d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+    return (d.getFullYear() === now.getFullYear() ? date : date + ' ' + d.getFullYear()) + ', ' + time;
+  }
   // Русское склонение после числа: 1 победа, 2 победы, 5 побед.
   function plural(n, one, few, many) {
     const a = Math.abs(n) % 100, b = a % 10;
@@ -758,7 +772,9 @@
     O.poll = setInterval(() => {
       if (!O.code) return;
       const gap = Date.now() - O.lastFetch;
-      if ((!O.live && gap > 3000) || gap > 15000) fetchGame();
+      // Пока за столом нет второго игрока, его приход ждём опросом, а не только живым каналом.
+      const waiting = !!O.game && !O.game.p2;
+      if (waiting ? gap > 2000 : (!O.live && gap > 3000) || gap > 15000) fetchGame();
     }, 1500);
     await fetchGame();
     if (O.code !== code) return;
@@ -807,6 +823,8 @@
     O.joining = false;
     if (gameErr(error, 'Не удалось сесть за стол')) return;
     if (!data) O.msg = 'Сесть за этот стол не получилось: место уже занято или приглашение было не вам.';
+    // Запросы, ушедшие до посадки, вернут состояние без второго игрока: помечаем их устаревшими.
+    O.fetchSeq++;
     await fetchGame();
     render();
   }
@@ -1337,11 +1355,12 @@
   }
 
   function li(cls) { const el = document.createElement('li'); if (cls) el.className = cls; return el; }
-  function info(title, sub) {
+  function info(title, sub, extra) {
     const d = document.createElement('div'); d.className = 'gi';
     const b = document.createElement('b'); b.textContent = title;
     const s = document.createElement('span'); s.textContent = sub;
     d.append(b, s);
+    if (extra) { const e = document.createElement('span'); e.className = 'when'; e.textContent = extra; d.appendChild(e); }
     return d;
   }
   function btn(text, attrs, cls) {
@@ -1385,7 +1404,7 @@
     }
     for (const g of O.invites) {
       const row = li('invite');
-      row.append(info(nameOf(g.p1) + ' зовёт сыграть', cfgSummary(g.cfg)),
+      row.append(info(nameOf(g.p1) + ' зовёт сыграть', cfgSummary(g.cfg), fmtWhen(g.updated_at)),
         btns(btn('Играть', { act: 'inv-accept', code: g.code }, 'go'), btn('Отказаться', { act: 'inv-decline', code: g.code })));
       inv.appendChild(row);
     }
@@ -1409,7 +1428,7 @@
         const sure = O.confirmDelete === g.code;
         actions.push(btn(sure ? 'Точно удалить?' : 'Удалить', { act: 'ask-delete', code: g.code }, 'warn'));
       }
-      row.append(info(gameState(g), g.code + ' · ' + cfgSummary(g.cfg)), btns(...actions));
+      row.append(info(gameState(g), g.code + ' · ' + cfgSummary(g.cfg), fmtWhen(g.updated_at)), btns(...actions));
       gl.appendChild(row);
     }
     $('linkGame').disabled = O.creating;

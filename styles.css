@@ -481,6 +481,7 @@ input:focus { outline: 0; border-color: var(--brand); background: var(--surface)
 .gi { display: flex; flex-direction: column; min-width: 0; flex: 1 1 160px; }
 .gi b { font-weight: 600; font-size: 14.5px; }
 .gi span { font-size: 12.5px; color: var(--muted); }
+.gi .when { font-size: 11.5px; color: color-mix(in srgb, var(--muted) 80%, transparent); margin-top: 1px; }
 .btns { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; flex: none; }
 .empty-list { font-size: 13.5px; color: var(--muted); margin: 0; }
 
