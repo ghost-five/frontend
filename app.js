@@ -1664,6 +1664,7 @@
     btn.setAttribute('aria-pressed', on ? 'true' : 'false');
     btn.title = on ? 'Выключить звук' : 'Включить звук';
     if (document.activeElement !== range) range.value = String(S.volume);
+    range.style.setProperty('--fill', S.volume + '%');
   }
 
   function renderPalettes() {
@@ -1736,10 +1737,11 @@
     if (route === 'auth') { renderAuth(); return; }
     renderSettings();
     renderLooks();
+    renderPalettes();
     if (route === 'online') { renderHome(); return; }
     if (route === 'top') { renderTop(); return; }
     if (route === 'profile') { renderProfile(); return; }
-    if (route === 'look') { renderPalettes(); return; }
+    if (route === 'look') return;
     renderPlay();
   }
 
