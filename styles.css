@@ -266,17 +266,34 @@ input:focus { outline: 0; border-color: var(--brand); background: var(--surface)
   color: var(--muted); padding: 4px 10px; border: 1px solid var(--rule); border-radius: 999px;
   font-variant-numeric: tabular-nums; white-space: nowrap; background: var(--surface);
 }
+/* Часы хода: полоска внутри чипа показывает остаток. */
 .clock {
+  position: relative; overflow: hidden; display: inline-flex; align-items: center; gap: 6px;
   font-family: var(--mono); font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums;
-  padding: 4px 10px; border-radius: 999px; white-space: nowrap;
-  background: color-mix(in srgb, var(--brand) 16%, var(--surface));
-  border: 1px solid color-mix(in srgb, var(--brand) 40%, var(--rule)); color: var(--ink);
+  padding: 4px 10px; border-radius: 999px; white-space: nowrap; min-width: 62px;
+  background: var(--surface); border: 1px solid color-mix(in srgb, var(--brand) 40%, var(--rule)); color: var(--ink);
 }
+.clock .bar {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 100%;
+  background: color-mix(in srgb, var(--brand) 22%, transparent);
+  transition: width .25s linear;
+}
+.clock b { position: relative; font-weight: 600; }
+.clock::before {
+  content: "ход"; position: relative; font-size: 10px; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--muted);
+}
+.clock.bank::before { content: "запас"; }
+.clock.bank { border-color: var(--rule); opacity: .75; }
+.clock.bank .bar { background: color-mix(in srgb, var(--muted) 18%, transparent); }
+.clock.bank.active { opacity: 1; border-color: color-mix(in srgb, var(--burn) 55%, var(--rule)); }
+.clock.bank.active .bar { background: color-mix(in srgb, var(--burn) 26%, transparent); }
+.clock.spent { opacity: .5; }
 .clock.low {
-  background: color-mix(in srgb, var(--alert) 18%, var(--surface));
   border-color: color-mix(in srgb, var(--alert) 55%, var(--rule)); color: var(--alert);
   animation: blink 1s steps(2, end) infinite;
 }
+.clock.low .bar { background: color-mix(in srgb, var(--alert) 22%, transparent); }
 @keyframes blink { 50% { opacity: .5; } }
 #statusText { font-weight: 500; min-width: 0; }
 #statusText.win1 { color: var(--p1); font-weight: 600; }

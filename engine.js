@@ -10,9 +10,12 @@
   const rowLen = (cfg) => (cfg.win === 4 ? 4 : 5);
   // Сколько ходов якорь стоит, прежде чем его можно забрать обратно.
   const ANCHOR_HOLD = 5;
+  // Сколько ходов подряд можно пропустить, прежде чем засчитают поражение.
+  const MISS_LIMIT = 3;
 
   const E = {
     ANCHOR_HOLD,
+    MISS_LIMIT,
     rowLen,
     anchorOn: (cfg) => !!cfg.anchor && cfg.mem > 0,
 
@@ -21,7 +24,8 @@
       const st = {
         n, cells: new Array(n * n).fill(0), q: { 1: [], 2: [] }, anchors: [], anchorAt: { 1: 0, 2: 0 },
         anchorLeft: { 1: 1, 2: 1 }, shots: { 1: cfg.shots, 2: cfg.shots }, caps: { 1: 0, 2: 0 },
-        walls: [], scar: [], round: 1, moves: 0, turn: starter, starter, gameNo,
+        walls: [], scar: [], misses: { 1: 0, 2: 0 }, bank: { 1: cfg.bank || 0, 2: cfg.bank || 0 },
+        round: 1, moves: 0, turn: starter, starter, gameNo,
         over: false, winner: 0, winLine: [], winReason: '', last: [], log: [],
         fx: { fresh: [], gone: [], burn: -1 }
       };
@@ -35,6 +39,30 @@
     },
 
     resetFx(st) { st.fx = { fresh: [], gone: [], burn: -1 }; },
+
+    // Запас времени: сколько секунд игрок добрал сверх основного лимита.
+    spend(st, p, sec) {
+      if (!sec) return;
+      if (!st.bank) st.bank = { 1: 0, 2: 0 };
+      st.bank[p] = Math.max(0, (st.bank[p] || 0) - Math.max(0, Math.round(sec)));
+    },
+    // Три пропуска подряд — поражение; любой сделанный ход обнуляет счёт.
+    countMiss(st, ev) {
+      if (!st.misses) st.misses = { 1: 0, 2: 0 };
+      for (const p of [1, 2]) {
+        const passed = ev.some((e) => e.k === 'pass' && e.p === p);
+        const acted = ev.some((e) => e.p === p && e.k !== 'pass' && e.k !== 'unanchor' && e.k !== 'vanish');
+        if (passed) st.misses[p] = (st.misses[p] || 0) + 1;
+        else if (acted) st.misses[p] = 0;
+      }
+    },
+    missOut(st, cfg, tag) {
+      if (st.over || !st.misses) return;
+      const out1 = st.misses[1] >= MISS_LIMIT, out2 = st.misses[2] >= MISS_LIMIT;
+      if (!out1 && !out2) return;
+      if (out1 && out2) E.finish(st, 0, { line: [], reason: 'misses' }, tag);
+      else E.finish(st, out1 ? 2 : 1, { line: [], reason: 'misses' }, tag);
+    },
 
     // Общий счётчик ходов партии: в тайном режиме раунд, иначе номер полухода.
     clock: (st, cfg) => (cfg.secret ? st.round : st.moves),
@@ -217,6 +245,7 @@
       st.scar = [];
       const tag = 'Р' + st.round, ev = [], placed = [];
       // Якорь забирают бесплатно и до самого хода: освободившаяся клетка сразу годится.
+      for (const [p, m] of [[1, m1], [2, m2]]) E.spend(st, p, m.spent);
       for (const [p, m] of [[1, m1], [2, m2]]) if (m.take) E.takeAnchor(st, cfg, p, ev);
       // Ход «якорь» на пустую клетку — это тоже постановка фишки.
       const putting = (m) => (m.kind === 'place' || m.kind === 'anchor') && st.cells[m.i] === 0;
@@ -268,12 +297,14 @@
       }
       const cooled = E.wallTick(st, cfg, newWall);
       if (cooled) ev.push({ k: 'cool', n: cooled });
+      E.countMiss(st, ev);
       E.log(st, tag, ev, kind);
       const w1 = E.checkWin(st, cfg, 1), w2 = E.checkWin(st, cfg, 2);
       if (w1 && w2) E.finish(st, 0, { line: w1.line.concat(w2.line), reason: 'both' }, tag);
       else if (w1) E.finish(st, 1, w1, tag);
       else if (w2) E.finish(st, 2, w2, tag);
       else if (!st.cells.includes(0)) E.finish(st, 0, { line: [], reason: 'full' }, tag);
+      E.missOut(st, cfg, tag);
       if (!st.over) st.round++;
     },
 
@@ -283,6 +314,7 @@
       st.scar = [];
       st.moves++;
       const tag = 'Х' + st.moves, ev = [];
+      E.spend(st, p, m.spent);
       if (m.take) E.takeAnchor(st, cfg, p, ev);
       if (m.kind === 'anchor' && st.cells[m.i] === p) {
         st.last = [m.i];
@@ -315,11 +347,13 @@
         // Ход пропущен: кончилось время.
         ev.push({ k: 'pass', p });
       }
+      E.countMiss(st, ev);
       if (ev.length) E.log(st, tag, ev);
       const w = E.checkWin(st, cfg, p);
       if (w) E.finish(st, p, w, tag);
       else if (!st.cells.includes(0)) E.finish(st, 0, { line: [], reason: 'full' }, tag);
-      else st.turn = 3 - p;
+      E.missOut(st, cfg, tag);
+      if (!st.over) st.turn = 3 - p;
     },
 
     // Сдача: победа достаётся сопернику.

@@ -118,7 +118,8 @@
       <div class="playmain">
         <div class="status" id="statusRow">
           <span class="round" id="round">Раунд 1</span>
-          <span class="clock" id="clock" hidden></span>
+          <span class="clock" id="clock" hidden><i class="bar" id="clockBar"></i><b id="clockText"></b></span>
+          <span class="clock bank" id="bankClock" hidden><i class="bar" id="bankBar"></i><b id="bankText"></b></span>
           <span id="statusText">Выберите клетку</span>
         </div>
         <p class="msg" id="msg" hidden></p>
@@ -321,6 +322,10 @@
       <div class="seg" data-key="timer" data-type="num"><button type="button" data-v="0">Без времени</button><button type="button" data-v="15">15 с</button><button type="button" data-v="30">30 с</button><button type="button" data-v="60">60 с</button></div></div>
       <p class="hint">Не успели выбрать — ход пропадает, соперник ходит один.</p>
     </div>
+    <div class="setting" id="set-bank"><div class="row"><span>Запас времени</span>
+      <div class="seg" data-key="bank" data-type="num"><button type="button" data-v="0">Без запаса</button><button type="button" data-v="30">30 с</button><button type="button" data-v="60">1 мин</button><button type="button" data-v="180">3 мин</button></div></div>
+      <p class="hint">Общий запас на всю партию. Тратится, когда кончилось время на ход. Нужно время на ход.</p>
+    </div>
     <div class="setting" id="set-capture"><div class="row"><span>Захват пар</span>
       <div class="seg" data-key="capture" data-type="bool"><button type="button" data-v="1">Вкл</button><button type="button" data-v="0">Выкл</button></div></div>
       <p class="hint">Зажмите ровно две фишки соперника своими с обеих сторон, и они исчезнут. 5 захваченных пар тоже победа.</p>
@@ -341,7 +346,9 @@
     <p><strong>Цвет и форма фишек</strong> — личная настройка в разделе «Вид»: вы выбираете, как выглядят и ваши фишки, и фишки соперника. На его экране всё так, как выбрал он.</p>
     <p><strong>Клетки подписаны</strong> буквами и цифрами, как на шахматной доске: в журнале справа ходы записаны этой же нотацией. Клетка, с которой сбили фишку, остаётся помеченной на один ход.</p>
     <p><strong>По сети</strong> тайные ходы шифруются: соперник видит только, что вы сходили, а сам ход открывается, когда сходили оба. После партии рейтинг обоих меняется, общий список — в разделе «Лидеры».</p>
-    <p><strong>Сдаться</strong> можно кнопкой в панели над полем: победа засчитывается сопернику. Пока в партии не сделано ни одного хода, на этом месте кнопка «Отменить партию» — её может нажать любой из двоих, и партия просто исчезнет.</p>
+    <p><strong>Время на ход</strong> показывают две шкалы: «ход» — основной лимит, «запас» — общий резерв на всю партию. Когда основное время кончилось, идёт запас; кончился и он — ход пропускается. Если клетка уже выбрана, ход уйдёт на неё, а не пропадёт.</p>
+    <p><strong>Три пропуска подряд</strong> — поражение. Счётчик виден в карточке игрока и обнуляется любым сделанным ходом.</p>
+    <p><strong>Сдаться</strong> можно кнопкой в панели над полем или прямо из списка «Мои партии»: победа засчитывается сопернику. Пока в партии не сделано ни одного хода, на этом месте кнопка «Отменить партию» — её может нажать любой из двоих, и партия просто исчезнет. Законченную партию можно удалить из списка.</p>
   </div>
   <button class="btn primary wide" type="button" data-act="help-close">Понятно</button>
 </dialog>

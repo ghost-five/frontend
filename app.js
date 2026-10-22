@@ -20,14 +20,14 @@
     { id: 'square', name: 'Квадрат' }, { id: 'diamond', name: 'Ромб' }, { id: 'star', name: 'Звезда' }
   ];
   const ACT_WORD = { place: 'Сделать ход', shot: 'Выстрелить', anchor: 'Поставить якорь', moveAnchor: 'Сдвинуть якорь', unanchor: 'Забрать якорь' };
-  const CFG_KEYS = ['size', 'win', 'secret', 'wallTtl', 'mem', 'anchor', 'shots', 'capture', 'timer'];
+  const CFG_KEYS = ['size', 'win', 'secret', 'wallTtl', 'mem', 'anchor', 'shots', 'capture', 'timer', 'bank'];
   const NICK_RE = /^[A-Za-zА-Яа-яЁё0-9_.-]{3,20}$/;
   const CODE_RE = /^[A-Z0-9]{4,8}$/;
 
   // ---------- Settings (per browser) ----------
   const S = {
     opp: 'bot', theme: 'auto', logOpen: true,
-    size: 13, win: 4, secret: true, wallTtl: 5, mem: 8, anchor: true, shots: 1, capture: false, timer: 0,
+    size: 13, win: 4, secret: true, wallTtl: 5, mem: 8, anchor: true, shots: 1, capture: false, timer: 0, bank: 60,
     look: { 1: { color: 'cobalt', shape: 'circle' }, 2: { color: 'coral', shape: 'diamond' } }
   };
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
@@ -80,7 +80,7 @@
     profileMsg: '', profileErr: false,
     // home
     friends: [], games: [], invites: [], names: {}, ratings: {}, top: [], topMsg: '', rated: '',
-    homeMsg: '', friendMsg: '', friendErr: false, confirmResign: false, confirmDelete: '',
+    homeMsg: '', friendMsg: '', friendErr: false, confirmResign: false, confirmDelete: '', confirmQuit: '',
     homeChan: null, homePoll: null, homeSeq: 0, confirmRemove: null,
     // one game
     code: null, game: null, st: null, moves: { 1: null, 2: null }, notFound: false,
@@ -127,6 +127,7 @@
   const lookOf = (p) => S.look[slotOf(p)] || S.look[1];
   const colorOf = (p) => COLORS.find((c) => c.id === lookOf(p).color) || COLORS[0];
   const capWord = (s) => s[0].toUpperCase() + s.slice(1);
+  const fmtSpan = (sec) => (sec >= 60 ? Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0') : sec + ' с');
   // Русское склонение после числа: 1 победа, 2 победы, 5 побед.
   function plural(n, one, few, many) {
     const a = Math.abs(n) % 100, b = a % 10;
@@ -175,8 +176,16 @@
     return { 1: nameOf(g.p1), 2: g.p2 ? nameOf(g.p2) : g.invitee ? nameOf(g.invitee) : 'Ждём игрока' };
   }
   function resultText(w, reason) {
-    if (!w) return reason === 'both' ? 'Ничья: победа у обоих в одном раунде.' : 'Ничья: поле заполнено.';
+    if (!w) {
+      if (reason === 'misses') return 'Ничья: оба пропустили три хода подряд.';
+      return reason === 'both' ? 'Ничья: победа у обоих в одном раунде.' : 'Ничья: поле заполнено.';
+    }
     const who = names()[w];
+    if (reason === 'misses') {
+      const loser = names()[3 - w];
+      const tail = who === 'Вы' ? 'Побеждаете вы.' : 'Побеждает ' + who + '.';
+      return loser + (loser === 'Вы' ? ' пропустили' : ' пропускает') + ' три хода подряд. ' + tail;
+    }
     if (reason === 'resign') {
       const loser = names()[3 - w];
       if (loser === 'Вы') return 'Вы сдались. Побеждает ' + who + '.';
@@ -257,7 +266,7 @@
     if (E.anchorOn(cfg)) parts.push('якорь');
     if (cfg.shots) parts.push('выстрелы ' + cfg.shots);
     if (cfg.capture) parts.push('захват');
-    if (cfg.timer) parts.push(cfg.timer + ' с на ход');
+    if (cfg.timer) parts.push(cfg.timer + ' с на ход' + (cfg.bank ? ' + запас ' + fmtSpan(cfg.bank) : ''));
     return parts.join(' · ');
   }
 
@@ -333,7 +342,7 @@
     const p = picker();
     if (!p || !isHuman(p) || ui.sel === null || busy) return;
     const cfg = curCfg();
-    const m = { i: ui.sel, kind: ui.action, anchor: false, take: ui.take && E.canUnanchor(st, cfg, p) };
+    const m = { i: ui.sel, kind: ui.action, anchor: false, take: ui.take && E.canUnanchor(st, cfg, p), spent: overSpend(st, cfg) };
     resetUi();
     if (online()) { if (cfg.secret) commitMove(m); else onlineSeq(m); return; }
     if (cfg.secret) {
@@ -364,7 +373,7 @@
     catch (e) { return Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2); }
   }
   async function hashPlain(pl) {
-    const str = [pl.gameNo, pl.round, pl.i, pl.kind, pl.anchor ? 1 : 0, pl.take ? 1 : 0, pl.salt].join('|');
+    const str = [pl.gameNo, pl.round, pl.i, pl.kind, pl.anchor ? 1 : 0, pl.take ? 1 : 0, pl.spent || 0, pl.salt].join('|');
     try {
       const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
       return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join('');
@@ -671,6 +680,36 @@
     if (error) { O.homeMsg = errText(error); render(); return; }
     refreshHome();
   }
+  function askQuit(code) {
+    if (O.confirmQuit !== code) {
+      O.confirmQuit = code;
+      render();
+      setTimeout(() => { if (O.confirmQuit === code) { O.confirmQuit = ''; render(); } }, 4000);
+      return;
+    }
+    O.confirmQuit = '';
+    quitGame(code);
+  }
+
+  // Сдаться, не открывая партию: состояние берём с сервера, чтобы не разойтись с соперником.
+  async function quitGame(code) {
+    const { data, error } = await sb.from('games').select('*').eq('code', code).maybeSingle();
+    if (error || !data) { O.homeMsg = 'Не удалось сдаться: партия не найдена.'; render(); return; }
+    const seat = data.p1 === O.myId ? 1 : data.p2 === O.myId ? 2 : 0;
+    const st = data.state;
+    if (!seat || !st || st.over) { refreshHome(); return; }
+    const st2 = clone(st);
+    E.resign(st2, data.cfg, seat);
+    const sc = Object.assign({ 1: 0, 2: 0, d: 0 }, data.score);
+    bumpScore(sc, st2);
+    const up = await sb.from('games').update({ state: st2, score: sc })
+      .eq('code', code).eq('state->>gameNo', String(st.gameNo));
+    if (up.error) { O.homeMsg = 'Не удалось сдаться: ' + errText(up.error); render(); return; }
+    await sb.rpc('report_result', { g: code });
+    loadProfile();
+    refreshHome();
+  }
+
   function askDelete(code) {
     if (O.confirmDelete !== code) {
       O.confirmDelete = code;
@@ -775,7 +814,7 @@
   async function commitMove(m) {
     const st = O.st, me = mySeat(), code = O.code;
     if (!st || !me) return;
-    const pl = { gameNo: st.gameNo, round: st.round, i: m.i, kind: m.kind, anchor: !!m.anchor, take: !!m.take, salt: randSalt() };
+    const pl = { gameNo: st.gameNo, round: st.round, i: m.i, kind: m.kind, anchor: !!m.anchor, take: !!m.take, spent: m.spent || 0, salt: randSalt() };
     O.plain = pl;
     savePlain(code, pl);
     O.committing = true; O.msg = ''; render();
@@ -828,7 +867,7 @@
       O.revealing = key;
       const pl = O.plain;
       const { error } = await sb.from('moves')
-        .update({ reveal: { i: pl.i, kind: pl.kind, anchor: pl.anchor, take: !!pl.take, salt: pl.salt } })
+        .update({ reveal: { i: pl.i, kind: pl.kind, anchor: pl.anchor, take: !!pl.take, spent: pl.spent || 0, salt: pl.salt } })
         .eq('game_code', code).eq('seat', me).eq('game_no', pl.gameNo).eq('round', pl.round);
       if (error) { O.revealing = ''; gameErr(error, 'Не удалось открыть ход'); return; }
       fetchGame();
@@ -839,12 +878,12 @@
       const mv = {};
       for (const s of [1, 2]) {
         const d = O.moves[s], r = d.reveal || {};
-        const pl = { gameNo: d.gameNo, round: d.round, i: r.i, kind: r.kind, anchor: !!r.anchor, take: !!r.take, salt: r.salt };
+        const pl = { gameNo: d.gameNo, round: d.round, i: r.i, kind: r.kind, anchor: !!r.anchor, take: !!r.take, spent: +r.spent || 0, salt: r.salt };
         const ok = (await hashPlain(pl)) === d.commit;
-        let m = { i: pl.i, kind: pl.kind, anchor: pl.anchor, take: pl.take };
+        let m = { i: pl.i, kind: pl.kind, anchor: pl.anchor, take: pl.take, spent: pl.spent };
         // Подделанный ход отбрасываем целиком, невозможный — только его ходовую часть.
         if (!ok) m = { kind: 'pass' };
-        else if (!E.validTarget(st, g.cfg, s, m.i, m.kind) || (m.kind === 'shot' && st.shots[s] <= 0)) m = { kind: 'pass', take: m.take };
+        else if (!E.validTarget(st, g.cfg, s, m.i, m.kind) || (m.kind === 'shot' && st.shots[s] <= 0)) m = { kind: 'pass', take: m.take, spent: m.spent };
         mv[s] = m;
       }
       if (O.code !== code || !O.st || O.st.gameNo !== st.gameNo || O.st.round !== st.round || O.st.over) return;
@@ -990,16 +1029,47 @@
     return 'l' + st.gameNo + 'm' + st.moves + 't' + st.turn;
   }
 
+  function timerSeat() {
+    return online() ? mySeat() : picker();
+  }
+
+  // Сколько секунд этого хода уже взято из запаса.
+  function overSpend(st, cfg) {
+    if (!cfg.timer || !cfg.bank || !T.key) return 0;
+    const seat = timerSeat();
+    if (!seat) return 0;
+    const over = (Date.now() - T.start) / 1000 - cfg.timer;
+    if (over <= 0) return 0;
+    const left = (st.bank && st.bank[seat]) || 0;
+    return Math.min(left, Math.ceil(over));
+  }
+
   function tickTimer() {
-    const el = $('clock');
+    const el = $('clock'), bk = $('bankClock');
     const key = timerKey();
-    if (!key) { T.key = ''; el.hidden = true; return; }
+    if (!key) { T.key = ''; el.hidden = true; bk.hidden = true; return; }
     if (T.key !== key) { T.key = key; T.start = Date.now(); }
-    const left = Math.max(0, Math.ceil((T.start + curCfg().timer * 1000 - Date.now()) / 1000));
+    const st = curSt(), cfg = curCfg(), seat = timerSeat();
+    const limit = cfg.timer, whole = cfg.bank || 0;
+    const left = whole ? (st.bank && st.bank[seat]) || 0 : 0;
+    const elapsed = (Date.now() - T.start) / 1000;
+    const main = Math.max(0, limit - elapsed);
+    const bankNow = Math.max(0, left - Math.max(0, elapsed - limit));
+
     el.hidden = false;
-    el.textContent = left + ' с';
-    el.classList.toggle('low', left <= 5);
-    if (left > 0) return;
+    $('clockText').textContent = Math.ceil(main) + ' с';
+    $('clockBar').style.width = (limit ? (main / limit) * 100 : 0) + '%';
+    el.classList.toggle('spent', main <= 0 && bankNow > 0);
+    el.classList.toggle('low', main <= 5 && bankNow <= 0);
+
+    bk.hidden = !whole;
+    if (whole) {
+      $('bankText').textContent = fmtSpan(Math.ceil(bankNow));
+      $('bankBar').style.width = (bankNow / whole) * 100 + '%';
+      bk.classList.toggle('active', main <= 0 && bankNow > 0);
+      bk.classList.toggle('low', main <= 0 && bankNow > 0 && bankNow <= 5);
+    }
+    if (main > 0 || bankNow > 0) return;
     if (T.passed === key) return;
     T.passed = key;
     timeUp();
@@ -1011,9 +1081,10 @@
     // Клетку выбрали, но не успели подтвердить — ход всё равно идёт туда.
     const ready = ui.sel !== null && E.validTarget(st, cfg, p, ui.sel, ui.action);
     const take = ui.take && E.canUnanchor(st, cfg, p);
+    const spent = overSpend(st, cfg);
     const m = ready
-      ? { i: ui.sel, kind: ui.action, anchor: false, take }
-      : { i: -1, kind: 'pass', anchor: false, take };
+      ? { i: ui.sel, kind: ui.action, anchor: false, take, spent }
+      : { i: -1, kind: 'pass', anchor: false, take, spent };
     resetUi();
     if (online()) { if (cfg.secret) commitMove(m); else onlineSeq(m); return; }
     if (!cfg.secret) { localSeq(p, m); return; }
@@ -1329,7 +1400,12 @@
       const host = g.p1 === O.myId;
       const actions = [btn('Открыть', { act: 'open-game', code: g.code })];
       const fresh = (g.round || 1) === 1 && (g.moves || 0) === 0 && !g.over;
-      if ((host && (!g.p2 || g.over)) || fresh) {
+      // Из идущей партии можно выйти только сдачей, остальные удаляются насовсем.
+      if (!g.over && g.p2 && !fresh) {
+        const sureQ = O.confirmQuit === g.code;
+        actions.push(btn(sureQ ? 'Точно сдаться?' : 'Сдаться', { act: 'ask-quit', code: g.code }, 'warn'));
+      }
+      if (host || fresh || g.over) {
         const sure = O.confirmDelete === g.code;
         actions.push(btn(sure ? 'Точно удалить?' : 'Удалить', { act: 'ask-delete', code: g.code }, 'warn'));
       }
@@ -1591,6 +1667,8 @@
       else items.push({ t: 'Якорь', v: st.anchorLeft[p], off: st.anchorLeft[p] === 0 });
     }
     if (cfg.capture) items.push({ t: 'Пары', v: st.caps[p] + '/5' });
+    if (cfg.bank && st.bank) items.push({ t: 'Запас', v: fmtSpan(st.bank[p] || 0), off: !st.bank[p] });
+    if (st.misses && st.misses[p]) items.push({ t: 'Пропуски', v: st.misses[p] + '/' + E.MISS_LIMIT });
     if (isOnline && cfg.secret && !st.over && O.game && O.game.p2 && seatDone(p)) items.push({ t: 'Ход сделан', v: '✓' });
     const key = JSON.stringify(items);
     if (host.dataset.key === key) return;
@@ -1639,7 +1717,8 @@
     };
     dim('set-wallTtl', !src.secret || locked);
     dim('set-anchor', !src.mem || locked);
-    ['set-size', 'set-secret', 'set-mem', 'set-shots', 'set-capture'].forEach((id) => $(id).classList.toggle('dim', locked));
+    dim('set-bank', !src.timer || locked);
+    ['set-size', 'set-win', 'set-secret', 'set-mem', 'set-shots', 'set-capture', 'set-timer'].forEach((id) => $(id).classList.toggle('dim', locked));
     $('rulesCard').classList.toggle('locked', locked);
     $('rulesNote').textContent = locked ? cfgSummary(src) + '. Правила выбрал создатель партии.'
       : R.route === 'online' ? 'Эти правила получит партия, которую вы создадите.'
@@ -1748,6 +1827,7 @@
     else if (act === 'open-game') openGame(t.dataset.code, false);
     else if (act === 'delete-game') deleteGame(t.dataset.code || O.code);
     else if (act === 'ask-delete') askDelete(t.dataset.code || O.code);
+    else if (act === 'ask-quit') askQuit(t.dataset.code);
   });
 
   window.addEventListener('hashchange', () => {

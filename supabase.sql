@@ -465,7 +465,7 @@ create policy "games update by players" on public.games
   for update to authenticated
   using (auth.uid() in (p1, p2))
   with check (auth.uid() in (p1, p2));
--- Создатель удаляет свою партию всегда; второй игрок — пока в ней не сделано ни одного хода.
+-- Создатель удаляет свою партию всегда; второй игрок — пока в ней нет ходов или когда она уже окончена.
 drop policy if exists "games delete by host" on public.games;
 drop policy if exists "games delete" on public.games;
 create policy "games delete" on public.games
@@ -473,8 +473,13 @@ create policy "games delete" on public.games
     p1 = auth.uid()
     or (
       p2 = auth.uid()
-      and coalesce((state ->> 'round')::int, 1) = 1
-      and coalesce((state ->> 'moves')::int, 0) = 0
+      and (
+        coalesce((state ->> 'over')::boolean, false)
+        or (
+          coalesce((state ->> 'round')::int, 1) = 1
+          and coalesce((state ->> 'moves')::int, 0) = 0
+        )
+      )
     )
   );
 
