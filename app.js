@@ -25,7 +25,8 @@
 
   // ---------- Settings (per browser) ----------
   const S = {
-    opp: 'bot', size: 13, secret: true, wallTtl: 5, mem: 8, anchor: true, shots: 1, capture: false,
+    opp: 'bot', theme: 'auto',
+    size: 13, secret: true, wallTtl: 5, mem: 8, anchor: true, shots: 1, capture: false,
     look: { 1: { color: 'cobalt', shape: 'circle' }, 2: { color: 'coral', shape: 'diamond' } }
   };
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
@@ -33,7 +34,7 @@
   try {
     const saved = JSON.parse(lsGet('ghost5-settings') || 'null');
     if (saved && typeof saved === 'object') {
-      for (const k of ['opp'].concat(CFG_KEYS)) if (k in saved) S[k] = saved[k];
+      for (const k of ['opp', 'theme'].concat(CFG_KEYS)) if (k in saved) S[k] = saved[k];
       for (const p of [1, 2]) {
         const l = saved.look && saved.look[p];
         if (l && COLORS.some((c) => c.id === l.color)) S.look[p].color = l.color;
@@ -41,7 +42,9 @@
       }
     }
   } catch (e) {}
-  if (!['bot', 'friend', 'online'].includes(S.opp)) S.opp = 'bot';
+  // Прошлые версии держали «по сети» третьим соперником; теперь это отдельный раздел.
+  if (!['bot', 'friend'].includes(S.opp)) S.opp = 'bot';
+  if (!['auto', 'light', 'dark'].includes(S.theme)) S.theme = 'auto';
   const save = () => lsSet('ghost5-settings', JSON.stringify(S));
   const pickCfg = (src) => { const c = {}; CFG_KEYS.forEach((k) => { c[k] = src[k]; }); return c; };
   const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -61,18 +64,22 @@
   const siteUrl = () => location.origin + location.pathname;
 
   // ---------- Controller state ----------
-  const online = () => S.opp === 'online';
+  // Разделы приложения: вход, игра на этом устройстве, лобби, онлайн-партия, вид, профиль.
+  const ROUTES = ['auth', 'play', 'online', 'game', 'look', 'profile'];
+  const TABS = ['play', 'online', 'look', 'profile'];
+  const R = { route: 'auth' };
+  const online = () => R.route === 'game';
   const Lc = { st: null, cfg: null, phase: 'pick', pending1: null, score: { 1: 0, 2: 0, d: 0 }, starter: 2 };
   const ui = { sel: null, action: 'place', useAnchor: false };
   let busy = false;
   const O = {
     // account
-    authReady: false, myId: null, email: '', profile: undefined, recovery: false,
+    authReady: false, myId: null, email: '', profile: undefined, recovery: false, guest: false,
     authView: 'login', authEmail: '', authBusy: false, authMsg: '', authErr: false,
-    view: 'home', profileMsg: '', profileErr: false,
+    profileMsg: '', profileErr: false,
     // home
     friends: [], games: [], invites: [], names: {}, homeMsg: '', friendMsg: '', friendErr: false,
-    homeChan: null, homePoll: null, confirmRemove: null,
+    homeChan: null, homePoll: null, homeSeq: 0, confirmRemove: null,
     // one game
     code: null, game: null, st: null, moves: { 1: null, 2: null }, notFound: false,
     chan: null, poll: null, live: false, lastFetch: 0, fetchSeq: 0,
@@ -81,8 +88,31 @@
   };
   const params = new URLSearchParams(location.search);
   let pendingCode = (params.get('g') || lsGet('ghost5-pending') || '').toUpperCase();
-  if (CODE_RE.test(pendingCode)) S.opp = 'online'; else pendingCode = '';
+  if (!CODE_RE.test(pendingCode)) pendingCode = '';
   function setPending(code) { pendingCode = code || ''; lsSet('ghost5-pending', code || null); }
+
+  // ---------- Навигация по разделам ----------
+  const signedIn = () => (!!O.myId && !O.recovery) || O.guest;
+  function go(route) {
+    if (!ROUTES.includes(route)) route = signedIn() ? 'play' : 'auth';
+    if (route !== 'game' && R.route === 'game') closeGame();
+    const was = R.route;
+    R.route = route;
+    if (was !== route) resetUi();
+    syncHash();
+    if (route === 'online' && O.myId) refreshHome();
+    render();
+    if (route === 'play' && was !== 'play') maybeBot();
+  }
+  function syncHash() {
+    const want = '#/' + R.route;
+    if (R.route === 'auth' || location.hash === want) return;
+    try { history.replaceState(null, '', location.pathname + location.search + want); } catch (e) {}
+  }
+  function routeFromHash() {
+    const h = (location.hash || '').replace(/^#\/?/, '');
+    return TABS.includes(h) ? h : '';
+  }
 
   const curSt = () => (online() ? O.st : Lc.st);
   const curCfg = () => (online() ? (O.game ? O.game.cfg : pickCfg(S)) : Lc.cfg);
@@ -96,6 +126,7 @@
     if (!O.game || !O.myId) return 0;
     return O.game.p1 === O.myId ? 1 : O.game.p2 === O.myId ? 2 : 0;
   }
+  const inOnlineGame = () => !!O.game && !!mySeat();
   function moveCurrent(d, st) { return !!(d && st && d.gameNo === st.gameNo && d.round === st.round && d.commit); }
   function hasPlain(st) { return !!(O.plain && st && O.plain.gameNo === st.gameNo && O.plain.round === st.round); }
   function seatDone(seat) {
@@ -336,25 +367,24 @@
     O.names = {};
     if (uid) {
       O.profile = undefined;
-      O.view = 'home';
+      O.guest = false;
       if (!O.recovery) { O.authView = 'login'; O.authMsg = ''; O.authErr = false; }
       loadProfile();
       startHome();
-      if (pendingCode && !O.recovery) { const c = pendingCode; setPending(''); openGame(c, true); }
-    } else {
-      O.profile = undefined;
-      O.recovery = false;
-      stopHome();
-      closeGame();
+      if (pendingCode && !O.recovery) { const c = pendingCode; setPending(''); openGame(c, true); return; }
+      go(O.recovery ? 'auth' : routeFromHash() || 'play');
+      return;
     }
-    render();
+    O.profile = undefined;
+    O.recovery = false;
+    stopHome();
+    go('auth');
   }
   async function loadProfile() {
     const { data, error } = await sb.from('profiles').select('id,nickname').eq('id', O.myId).maybeSingle();
     if (error) { O.profile = null; O.homeMsg = 'Не удалось загрузить профиль: ' + errText(error); render(); return; }
     O.profile = data || null;
     if (data) O.names[data.id] = data.nickname;
-    if (!data || !NICK_RE.test(data.nickname)) O.view = 'profile';
     render();
   }
 
@@ -464,7 +494,7 @@
       .on('postgres_changes', { event: '*', schema: 'public', table: 'games' }, () => scheduleHome())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'friendships' }, () => scheduleHome())
       .subscribe();
-    O.homePoll = setInterval(() => { if (online() && !O.code) refreshHome(); }, 20000);
+    O.homePoll = setInterval(() => { if (R.route === 'online') refreshHome(); }, 20000);
   }
   function stopHome() {
     if (O.homeChan) { sb.removeChannel(O.homeChan); O.homeChan = null; }
@@ -478,13 +508,15 @@
   async function refreshHome() {
     const me = O.myId;
     if (!sb || !me) return;
+    // Запросы могут вернуться не в том порядке, в каком ушли: старый ответ не должен затирать свежий.
+    const seq = ++O.homeSeq;
     const cols = 'code,p1,p2,invitee,status,cfg,updated_at,over:state->over,turn:state->turn';
     const [fr, games, inv] = await Promise.all([
       sb.from('friendships').select('requester,addressee,status'),
       sb.from('games').select(cols).or('p1.eq.' + me + ',p2.eq.' + me).order('updated_at', { ascending: false }).limit(20),
       sb.from('games').select(cols).eq('invitee', me).is('p2', null).eq('status', 'waiting').order('updated_at', { ascending: false }).limit(20)
     ]);
-    if (O.myId !== me) return;
+    if (O.myId !== me || seq !== O.homeSeq) return;
     const err = fr.error || games.error || inv.error;
     if (err) { O.homeMsg = 'Не удалось загрузить данные: ' + errText(err); render(); return; }
     O.friends = (fr.data || []).map((r) => {
@@ -568,7 +600,7 @@
   async function deleteGame(code) {
     const { error } = await sb.from('games').delete().eq('code', code);
     if (error) { O.homeMsg = O.msg = 'Не удалось удалить партию: ' + errText(error); render(); return; }
-    if (O.code === code) closeGame();
+    if (O.code === code) { go('online'); return; }
     refreshHome();
     render();
   }
@@ -591,6 +623,8 @@
     O.plain = loadPlain(code);
     resetUi();
     setUrlCode(code);
+    R.route = 'game';
+    syncHash();
     render();
     O.chan = sb.channel('game-' + code)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'games', filter: 'code=eq.' + code }, () => scheduleFetch())
@@ -931,13 +965,21 @@
   function renderAuth() {
     let view = O.authView;
     if (O.recovery) view = 'reset';
+    const simple = view === 'login' || view === 'signup';
+    $('authSwitch').hidden = !simple || !sb;
+    $('authSwitch').querySelectorAll('button').forEach((b) => {
+      b.setAttribute('aria-pressed', b.dataset.auth === view ? 'true' : 'false');
+    });
+    $('authTitle').hidden = simple;
     $('authTitle').textContent = AUTH_TITLES[view] || 'Вход';
     let note = O.authMsg, noteErr = O.authErr;
     if (!configured) { note = 'Онлайн-режим ещё не настроен: впишите адрес проекта и ключ Supabase в файл config.js (см. README).'; noteErr = true; }
     else if (!sb) { note = 'Не загрузилась библиотека Supabase. Проверьте, что папка vendor лежит рядом с index.html.'; noteErr = true; }
     else if (!note && pendingCode && view === 'login') note = 'Войдите или зарегистрируйтесь, чтобы открыть партию ' + pendingCode + '.';
     setNote($('authNote'), note, noteErr);
-    document.querySelectorAll('#authCard form').forEach((f) => {
+    // Без сервера остаётся только игра с ботом: иначе страница превратилась бы в тупик.
+    $('guestRow').hidden = !!sb;
+    document.querySelectorAll('#screenAuth .authform').forEach((f) => {
       f.hidden = !sb || !O.authReady || f.dataset.view !== view;
       f.querySelectorAll('button[type="submit"]').forEach((b) => { b.disabled = O.authBusy; });
     });
@@ -951,7 +993,6 @@
   function info(title, sub) {
     const d = document.createElement('div'); d.className = 'gi';
     const b = document.createElement('b'); b.textContent = title;
-    b.style.letterSpacing = 'normal'; b.style.fontFamily = 'var(--body)'; b.style.fontWeight = '600';
     const s = document.createElement('span'); s.textContent = sub;
     d.append(b, s);
     return d;
@@ -983,7 +1024,6 @@
   }
 
   function renderHome() {
-    $('meNick').textContent = O.profile ? O.profile.nickname : '';
     setNote($('homeNote'), O.homeMsg, !/изменён/.test(O.homeMsg));
 
     // Invites: incoming friend requests and game invitations.
@@ -1047,8 +1087,7 @@
     if (forced && !note) { note = O.profile ? 'Ник «' + O.profile.nickname + '» не подходит под новые правила. Придумайте новый.' : 'Придумайте ник: по нему вас найдут друзья.'; isErr = false; }
     setNote($('profileNote'), note, isErr);
     $('meEmail').textContent = O.email;
-    $('profileBack').hidden = forced;
-    $('passForm').hidden = forced;
+    $('passCard').hidden = forced;
     $('nickBtn').disabled = O.authBusy;
     if (document.activeElement !== $('nickIn') && !$('nickIn').dataset.touched) {
       $('nickIn').value = O.profile ? O.profile.nickname : (O.email.split('@')[0] || '').replace(/[^A-Za-zА-Яа-яЁё0-9_.-]/g, '').slice(0, 20);
@@ -1056,51 +1095,94 @@
   }
 
   // ---------- Rendering: page ----------
-  function render() {
-    applyLook();
-    const isOnline = online();
-    const inGame = isOnline && !!O.code;
-    const signedIn = !!O.myId && !O.recovery;
-    const forcedProfile = signedIn && O.profile !== undefined && (!O.profile || !NICK_RE.test(O.profile.nickname));
-    const showAuth = isOnline && !inGame && !signedIn;
-    const showProfile = isOnline && signedIn && (forcedProfile || (!inGame && O.view === 'profile'));
-    const showHome = isOnline && signedIn && !inGame && !showProfile;
-    const inLobby = isOnline && !inGame;
-    $('authCard').hidden = !showAuth;
-    $('profileCard').hidden = !showProfile;
-    $('homeCard').hidden = !showHome;
-    if (showAuth) renderAuth();
-    if (showProfile) renderProfile();
-    if (showHome) renderHome();
+  function applyTheme() {
+    const el = document.documentElement;
+    if (S.theme === 'auto') el.removeAttribute('data-theme');
+    else el.setAttribute('data-theme', S.theme);
+  }
 
-    $('gamebar').hidden = !inGame;
-    if (inGame) {
-      $('gbCode').textContent = O.code;
-      $('liveDot').classList.toggle('on', O.live);
-      $('liveDot').title = O.live ? 'Связь в реальном времени' : 'Обновляем раз в несколько секунд';
-      const linkGame = !!(O.game && !O.game.invitee);
-      $('shareBtn').hidden = !navigator.share || !linkGame;
-      $('copyBtn').hidden = !linkGame;
-    }
-    const st = curSt(), cfg = curCfg();
-    const showGame = !inLobby && !!st;
-    $('statusRow').hidden = inLobby;
-    $('boardWrap').hidden = !showGame;
-    $('actions').hidden = !showGame;
-    $('players').hidden = !showGame;
-    $('draws').hidden = !showGame;
-    $('logPanel').hidden = !showGame;
-    const msg = $('msg');
-    msg.textContent = inGame ? O.msg : '';
-    msg.hidden = !msg.textContent;
+  // Куда игрока пускать: без входа — только на страницу входа, без ника — только в профиль.
+  function routeGuard() {
+    if (!signedIn()) { R.route = 'auth'; return; }
+    if (R.route === 'auth') R.route = 'play';
+    if (R.route === 'game' && !O.code) R.route = 'online';
+    if (!O.myId && R.route !== 'play' && R.route !== 'look') R.route = 'play';
+    if (O.myId && O.profile !== undefined && (!O.profile || !NICK_RE.test(O.profile.nickname))) R.route = 'profile';
+  }
+
+  function renderNav(route) {
+    const tab = route === 'game' ? 'online' : route;
+    $('appbar').hidden = route === 'auth';
+    document.querySelectorAll('#tabs .tab').forEach((b) => {
+      const nav = b.dataset.nav;
+      b.hidden = !O.myId && (nav === 'online' || nav === 'profile');
+      if (nav === tab) b.setAttribute('aria-current', 'page');
+      else b.removeAttribute('aria-current');
+    });
+    const waiting = O.friends.filter((f) => f.status === 'in').length + O.invites.length;
+    const count = $('navCount');
+    count.hidden = !waiting;
+    count.textContent = waiting || '';
+    $('meNickTop').textContent = O.profile ? O.profile.nickname : O.guest ? 'Гость' : '';
+  }
+
+  // Правила партии нужны и на экране игры, и в лобби: карточка одна и переезжает.
+  function placeRules(route) {
+    const card = $('rulesCard');
+    const slot = $(route === 'online' ? 'rulesSlotOnline' : 'rulesSlotPlay');
+    if (card.parentElement !== slot) slot.appendChild(card);
+    $('rulesTitle').textContent = route === 'online' ? 'Правила новой партии' : 'Правила партии';
+  }
+
+  function render() {
+    applyTheme();
+    applyLook();
+    routeGuard();
+    const route = R.route;
+    $('screenAuth').hidden = route !== 'auth';
+    $('screenPlay').hidden = !(route === 'play' || route === 'game');
+    $('screenOnline').hidden = route !== 'online';
+    $('screenLook').hidden = route !== 'look';
+    $('screenProfile').hidden = route !== 'profile';
+    renderNav(route);
+    placeRules(route);
+    if (route === 'auth') { renderAuth(); return; }
     renderSettings();
     renderLooks();
-    if (inLobby) { $('tools').hidden = true; return; }
+    if (route === 'online') { renderHome(); return; }
+    if (route === 'profile') { renderProfile(); return; }
+    if (route === 'look') return;
+    renderPlay();
+  }
+
+  function renderPlay() {
+    const isOnline = online();
+    $('localBar').hidden = isOnline;
+    $('onlineBar').hidden = !isOnline;
+    if (isOnline) {
+      $('gbCode').textContent = O.code || '';
+      $('liveDot').classList.toggle('on', O.live);
+      $('liveDot').title = O.live ? 'Связь в реальном времени' : 'Обновляем раз в несколько секунд';
+      const byLink = !!(O.game && !O.game.invitee);
+      $('shareBtn').hidden = !navigator.share || !byLink;
+      $('copyBtn').hidden = !byLink;
+    }
+    const st = curSt(), cfg = curCfg();
+    $('boardWrap').hidden = !st;
+    $('actions').hidden = !st;
+    $('players').hidden = !st;
+    $('draws').hidden = !st;
+    $('logPanel').hidden = !st;
+    $('tools').hidden = true;
+    const msg = $('msg');
+    msg.textContent = isOnline ? O.msg : '';
+    msg.hidden = !msg.textContent;
     if (!st) {
       $('round').textContent = 'Партия';
       $('statusText').className = '';
-      $('statusText').textContent = O.notFound ? 'Партия ' + O.code + ' не найдена. Возможно, её удалили или у вас нет к ней доступа.' : 'Загружаем партию…';
-      $('tools').hidden = true;
+      $('statusText').textContent = O.notFound
+        ? 'Партия ' + O.code + ' не найдена. Возможно, её удалили или у вас нет к ней доступа.'
+        : 'Загружаем партию…';
       return;
     }
 
@@ -1137,7 +1219,7 @@
       cbtn.textContent = ui.action === 'shot' ? 'Выстрелить' : 'Сделать ход';
       cbtn.disabled = !(ui.sel !== null && human);
     }
-    $('newGame').hidden = st.over || isOnline;
+    $('newGame').hidden = st.over;
 
     const nm = names();
     const score = isOnline ? Object.assign({ 1: 0, 2: 0, d: 0 }, O.game.score) : Lc.score;
@@ -1173,16 +1255,16 @@
   }
 
   function renderSettings() {
-    const isOnline = online();
-    const locked = isOnline && !!O.code && !!O.game;
+    const locked = online() && !!O.game;
     const src = locked ? O.game.cfg : S;
     document.querySelectorAll('.seg').forEach((seg) => {
       const key = seg.dataset.key;
-      const val = key === 'opp' ? S.opp : src[key];
+      if (!key) return;
+      const val = key === 'opp' ? S.opp : key === 'theme' ? S.theme : src[key];
       const cur = typeof val === 'boolean' ? (val ? '1' : '0') : String(val);
       seg.querySelectorAll('button').forEach((b) => {
         b.setAttribute('aria-pressed', b.dataset.v === cur ? 'true' : 'false');
-        b.disabled = key !== 'opp' && locked;
+        b.disabled = locked && key !== 'opp' && key !== 'theme';
       });
     });
     const dim = (id, off) => {
@@ -1193,22 +1275,22 @@
     dim('set-wallTtl', !src.secret || locked);
     dim('set-anchor', !src.mem || locked);
     ['set-size', 'set-secret', 'set-mem', 'set-shots', 'set-capture'].forEach((id) => $(id).classList.toggle('dim', locked));
-    $('rulesNote').textContent = locked ? 'Правила этой онлайн-партии выбрал её создатель.'
-      : isOnline ? 'Эти правила получит партия, которую вы создадите.'
+    $('rulesCard').classList.toggle('locked', locked);
+    $('rulesNote').textContent = locked ? cfgSummary(src) + '. Правила выбрал создатель партии.'
+      : R.route === 'online' ? 'Эти правила получит партия, которую вы создадите.'
       : 'Смена правил сразу начинает новую партию.';
   }
 
   function renderLooks() {
     let blocks;
-    const isOnline = online(), me = mySeat();
+    // Раздел «Вид» открыт поверх партии: там настраиваются фишки этой партии, а не домашние.
+    const isOnline = inOnlineGame(), me = mySeat();
     if (!isOnline) {
       const nm = names();
       blocks = [{ p: 1, label: nm[1], look: S.look[1], block: null }, { p: 2, label: nm[2], look: S.look[2], block: null }];
-    } else if (O.game && me) {
+    } else {
       const other = O.game.looks[3 - me];
       blocks = [{ p: me, label: 'Ваши фишки', look: O.game.looks[me] || S.look[1], block: other ? other.color : null }];
-    } else {
-      blocks = [{ p: 1, label: 'Ваши фишки', look: S.look[1], block: null }];
     }
     const key = JSON.stringify(blocks) + isOnline;
     const host = $('looks');
@@ -1234,7 +1316,7 @@
     const sw = e.target.closest('.swatch'), shp = e.target.closest('.shp');
     if (!box || (!sw && !shp) || (sw && sw.disabled)) return;
     const p = +box.dataset.p;
-    if (!online()) {
+    if (!inOnlineGame()) {
       const o = 3 - p;
       if (sw) {
         const c = sw.dataset.color;
@@ -1245,43 +1327,35 @@
       return;
     }
     const me = mySeat();
-    if (O.game && me) {
-      const base = O.game.looks[me] || S.look[1];
-      const cur = { color: base.color, shape: base.shape };
-      if (sw) cur.color = sw.dataset.color; else cur.shape = shp.dataset.shape;
-      S.look[1] = { color: cur.color, shape: cur.shape };
-      save();
-      saveMyLook(cur);
-    } else {
-      if (sw) S.look[1].color = sw.dataset.color; else S.look[1].shape = shp.dataset.shape;
-      save(); render();
-    }
+    const base = O.game.looks[me] || S.look[1];
+    const cur = { color: base.color, shape: base.shape };
+    if (sw) cur.color = sw.dataset.color; else cur.shape = shp.dataset.shape;
+    S.look[1] = { color: cur.color, shape: cur.shape };
+    save();
+    saveMyLook(cur);
   });
 
-  document.querySelectorAll('.seg').forEach((seg) => {
+  document.querySelectorAll('.seg[data-key]').forEach((seg) => {
     seg.addEventListener('click', (e) => {
       const b = e.target.closest('button');
       if (!b || b.disabled) return;
       const key = seg.dataset.key, type = seg.dataset.type, v = b.dataset.v;
       const val = type === 'bool' ? v === '1' : type === 'num' ? Number(v) : v;
       if (S[key] === val) return;
-      if (key === 'opp') {
-        const wasOnline = online();
-        S.opp = val; save();
-        if (val === 'online') { resetUi(); O.msg = ''; if (O.myId) refreshHome(); render(); return; }
-        if (wasOnline) closeGame();
-        Lc.score = { 1: 0, 2: 0, d: 0 }; Lc.starter = 2;
-        newLocal();
-        return;
-      }
-      S[key] = val; save();
-      if (online()) { render(); return; }
+      S[key] = val;
+      save();
+      if (key === 'theme') { render(); return; }
+      if (key === 'opp') { Lc.score = { 1: 0, 2: 0, d: 0 }; Lc.starter = 2; newLocal(); return; }
+      // Правила: на экране игры они перезапускают партию, в лобби — ждут новой.
+      if (R.route !== 'play') { render(); return; }
       Lc.starter = 2;
       newLocal();
     });
   });
 
   document.addEventListener('click', (e) => {
+    const nav = e.target.closest('[data-nav]');
+    if (nav) { go(nav.dataset.nav); return; }
     const authLink = e.target.closest('[data-auth]');
     if (authLink) {
       const to = authLink.dataset.auth;
@@ -1298,9 +1372,11 @@
     if (act === 'copy') copyLink();
     else if (act === 'share') shareLink();
     else if (act === 'reveal' && Lc.phase === 'handoff') { Lc.phase = 'pick2'; render(); }
-    else if (act === 'profile') { O.view = 'profile'; O.profileMsg = ''; $('nickIn').dataset.touched = ''; render(); }
-    else if (act === 'home') { O.view = 'home'; O.profileMsg = ''; render(); }
-    else if (act === 'signout' && sb) { sb.auth.signOut(); }
+    else if (act === 'guest') { O.guest = true; go('play'); }
+    else if (act === 'signout') {
+      if (sb && O.myId) sb.auth.signOut();
+      else { O.guest = false; go('auth'); }
+    }
     else if (act === 'fr-accept') respondFriend(t.dataset.id, true);
     else if (act === 'fr-decline') respondFriend(t.dataset.id, false);
     else if (act === 'fr-remove') removeFriend(t.dataset.id);
@@ -1309,6 +1385,11 @@
     else if (act === 'inv-decline') declineInvite(t.dataset.code);
     else if (act === 'open-game') openGame(t.dataset.code, false);
     else if (act === 'delete-game') deleteGame(t.dataset.code || O.code);
+  });
+
+  window.addEventListener('hashchange', () => {
+    const r = routeFromHash();
+    if (r && r !== R.route && signedIn()) go(r);
   });
 
   $('loginForm').addEventListener('submit', (e) => { e.preventDefault(); doLogin($('loginEmail').value.trim(), $('loginPass').value); });
@@ -1346,7 +1427,7 @@
     $('joinCode').value = '';
     openGame(code, true);
   });
-  $('toLobby').addEventListener('click', () => { closeGame(); resetUi(); O.view = 'home'; refreshHome(); render(); });
+  $('toLobby').addEventListener('click', () => go('online'));
   $('confirm').addEventListener('click', confirmMove);
   $('newGame').addEventListener('click', () => { if (!online()) newLocal(); });
   $('actPlace').addEventListener('click', () => setAction('place'));
@@ -1359,10 +1440,11 @@
   });
 
   // ---------- Start ----------
+  applyTheme();
   Lc.starter = 2;
-  if (online()) {
-    Lc.cfg = pickCfg(S); Lc.st = E.make(Lc.cfg, 1, 1);
-    render();
-  } else newLocal();
+  Lc.cfg = pickCfg(S);
+  Lc.st = E.make(Lc.cfg, 1, 1);
+  Lc.phase = Lc.cfg.secret ? 'pick1' : 'pick';
+  render();
   initAuth();
 })();
