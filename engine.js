@@ -249,12 +249,17 @@
       for (const [p, m] of [[1, m1], [2, m2]]) if (m.take) E.takeAnchor(st, cfg, p, ev);
       // Ход «якорь» на пустую клетку — это тоже постановка фишки.
       const putting = (m) => (m.kind === 'place' || m.kind === 'anchor') && st.cells[m.i] === 0;
+      // На какую клетку игрок метит: поставить фишку или привести туда якорь.
+      const claim = (p, m) => (putting(m) ? m.i : m.kind === 'moveAnchor' && E.canMoveAnchor(st, cfg, p, m.i) ? m.i : -1);
+      const c1 = claim(1, m1), c2 = claim(2, m2);
       let kind = '', newWall = -1;
-      if (putting(m1) && putting(m2) && m1.i === m2.i) {
-        st.cells[m1.i] = 3;
-        st.walls.push([m1.i, cfg.wallTtl || 0]);
-        newWall = m1.i; st.fx.burn = m1.i; st.last = [];
-        ev.push({ k: 'burn', i: m1.i }); kind = 'burn';
+      if (c1 >= 0 && c1 === c2) {
+        // Оба метили в одну клетку: она выгорает, и ни фишка, ни якорь туда не попадают.
+        const hitAnchor = m1.kind === 'moveAnchor' || m2.kind === 'moveAnchor';
+        st.cells[c1] = 3;
+        st.walls.push([c1, cfg.wallTtl || 0]);
+        newWall = c1; st.fx.burn = c1; st.last = [];
+        ev.push({ k: 'burn', i: c1, anchor: hitAnchor }); kind = 'burn';
       } else {
         for (const [p, m] of [[1, m1], [2, m2]]) {
           if (m.kind === 'anchor' && st.cells[m.i] === p) { E.setAnchor(st, cfg, p, m.i, ev); continue; }

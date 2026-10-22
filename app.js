@@ -226,7 +226,9 @@
     switch (e.k) {
       case 'start': return e.secret ? ['Новая партия. Оба ходят одновременно.'] : ['Новая партия. Первый ход: ', nameRef(e.starter), '.'];
       case 'open': return ['Ходы открыты.'];
-      case 'burn': return ['Оба выбрали одну клетку', ...at(e.i, ' '), ' — она сгорела.'];
+      case 'burn': return e.anchor
+        ? ['Якорь и ход соперника сошлись', ...at(e.i, ' на '), ' — клетка сгорела.']
+        : ['Оба выбрали одну клетку', ...at(e.i, ' '), ' — она сгорела.'];
       case 'place': return [nameRef(e.p), ...at(e.i, ': '), '.'];
       case 'anchor': return [nameRef(e.p), ': якорь', ...at(e.i, ' на '), '.'];
       case 'anchorSet': return [nameRef(e.p), ': фишка', ...at(e.i, ' '), ' стала якорем.'];
@@ -246,6 +248,7 @@
 
   function renderLog(st) {
     const log = $('log');
+    if (log.contains(document.querySelector('.pos:hover'))) spotCell(-1, false);
     log.innerHTML = '';
     const nm = names();
     for (const rec of st.log) {
@@ -262,7 +265,7 @@
           if (typeof part === 'string') { one.appendChild(document.createTextNode(part)); continue; }
           const el = document.createElement('span');
           if (part.nm !== undefined) { el.className = 'nm n' + part.nm; el.textContent = nm[part.nm]; }
-          else { el.className = 'pos'; el.textContent = cellName(st, part.pos); }
+          else { el.className = 'pos'; el.textContent = cellName(st, part.pos); if (hasCell(part.pos)) el.dataset.i = part.pos; }
           one.appendChild(el);
         }
         box.appendChild(one);
@@ -323,6 +326,19 @@
   }
 
   // ---------- Moves (shared entry point) ----------
+  boardEl.addEventListener('mouseover', (e) => {
+    const c = e.target.closest('.cell');
+    if (c) spotCell(+c.dataset.i, false);
+  });
+  boardEl.addEventListener('mouseleave', () => spotCell(-1, false));
+  $('log').addEventListener('mouseover', (e) => {
+    const p = e.target.closest('.pos');
+    if (p && p.dataset.i !== undefined) spotCell(+p.dataset.i, true);
+  });
+  $('log').addEventListener('mouseout', (e) => {
+    if (e.target.closest('.pos')) spotCell(-1, false);
+  });
+
   boardEl.addEventListener('click', (e) => {
     const b = e.target.closest('.cell');
     if (b) onCell(+b.dataset.i);
@@ -1193,6 +1209,31 @@
   // ---------- Rendering: game ----------
   let builtN = 0, cellEls = [], cellKeys = [];
   let fxKey = '', fxDone = '';
+  // Подсветка клетки: полосы до осей, подписи координат и, если нужно, кольцо на самой клетке.
+  let spotIdx = -1;
+  function markAxis(i, on) {
+    if (!builtN) return;
+    const r = $('ranks').children[(i / builtN) | 0], f = $('files').children[i % builtN];
+    if (r) r.classList.toggle('on', on);
+    if (f) f.classList.toggle('on', on);
+  }
+  function spotCell(i, ring) {
+    const row = $('hoverRow'), col = $('hoverCol'), mark = $('cellRing');
+    if (spotIdx >= 0 && spotIdx !== i) markAxis(spotIdx, false);
+    spotIdx = i;
+    if (i < 0 || !cellEls[i]) { row.hidden = true; col.hidden = true; mark.hidden = true; return; }
+    const box = $('boardBox').getBoundingClientRect(), r = cellEls[i].getBoundingClientRect();
+    const top = r.top - box.top, left = r.left - box.left;
+    row.hidden = false; row.style.top = top + 'px'; row.style.height = r.height + 'px';
+    col.hidden = false; col.style.left = left + 'px'; col.style.width = r.width + 'px';
+    mark.hidden = !ring;
+    if (ring) {
+      mark.style.top = top + 'px'; mark.style.left = left + 'px';
+      mark.style.width = r.width + 'px'; mark.style.height = r.height + 'px';
+    }
+    markAxis(i, true);
+  }
+
   function renderAxes(n) {
     const ranks = $('ranks'), files = $('files');
     if (ranks.dataset.n === String(n)) return;
@@ -1208,6 +1249,7 @@
   function ensureBoard(n) {
     renderAxes(n);
     if (builtN === n) return;
+    spotCell(-1, false);
     builtN = n;
     boardEl.innerHTML = '';
     boardEl.style.gridTemplateColumns = 'repeat(' + n + ', minmax(0, 1fr))';

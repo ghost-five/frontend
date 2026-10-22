@@ -521,7 +521,7 @@ input:focus { outline: 0; border-color: var(--brand); background: var(--surface)
 .ranks span { display: grid; place-items: center; }
 .files { grid-column: 2; grid-row: 2; padding: 0 6px; }
 .files span { display: grid; place-items: center; }
-.board-frame .board { grid-column: 2; grid-row: 1; }
+.board-box { grid-column: 2; grid-row: 1; position: relative; min-width: 0; }
 
 /* ---------- След от сбитой фишки ---------- */
 .cell.scar::before {
@@ -643,3 +643,22 @@ input:focus { outline: 0; border-color: var(--brand); background: var(--surface)
 }
 @keyframes rise { from { opacity: 0; transform: translateY(22px) scale(.9); } }
 @keyframes halo { 50% { opacity: .45; } }
+
+/* ---------- Подсветка клетки и её координат ---------- */
+.xline, .yline {
+  position: absolute; pointer-events: none; z-index: 1; border-radius: 4px;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+.xline { left: 6px; right: 6px; }
+.yline { top: 6px; bottom: 6px; }
+.cellring {
+  position: absolute; pointer-events: none; z-index: 2; border-radius: 4px;
+  box-shadow: inset 0 0 0 2px var(--brand);
+  background: color-mix(in srgb, var(--brand) 16%, transparent);
+  animation: breathe 1.2s ease-in-out infinite;
+}
+.ranks span.on, .files span.on { color: var(--ink); font-weight: 700; }
+.log .pos {
+  cursor: default; border-bottom: 1px dotted color-mix(in srgb, var(--muted) 55%, transparent);
+}
+.log .pos:hover { color: var(--brand); border-bottom-color: var(--brand); }
