@@ -15,6 +15,14 @@
     { id: 'rose', name: 'Малина', nom: 'малиновые', gen: 'малиновых' },
     { id: 'graphite', name: 'Графит', nom: 'графитовые', gen: 'графитовых' }
   ];
+  // a и b — только для кружка-образца в настройках; сами цвета задаёт styles.css.
+  const PALETTES = [
+    { id: 'classic', name: 'Классика', a: '#4F6BFF', b: '#8A6BFF' },
+    { id: 'forest', name: 'Лес', a: '#2AA873', b: '#67C993' },
+    { id: 'sunset', name: 'Закат', a: '#E0702F', b: '#F0A14E' },
+    { id: 'violet', name: 'Сумерки', a: '#7C52DC', b: '#B06BE4' },
+    { id: 'mono', name: 'Графит', a: '#5A6782', b: '#8C97AE' }
+  ];
   const SHAPES = [
     { id: 'circle', name: 'Круг' }, { id: 'ring', name: 'Кольцо' }, { id: 'cross', name: 'Крест' },
     { id: 'square', name: 'Квадрат' }, { id: 'diamond', name: 'Ромб' }, { id: 'star', name: 'Звезда' }
@@ -26,7 +34,7 @@
 
   // ---------- Settings (per browser) ----------
   const S = {
-    opp: 'bot', theme: 'auto', logOpen: true, sound: true,
+    opp: 'bot', theme: 'auto', palette: 'classic', logOpen: true, sound: true, volume: 70,
     size: 13, win: 4, secret: true, wallTtl: 5, mem: 8, anchor: true, shots: 1, capture: false, timer: 0, bank: 60,
     look: { 1: { color: 'cobalt', shape: 'circle' }, 2: { color: 'coral', shape: 'diamond' } }
   };
@@ -35,7 +43,7 @@
   try {
     const saved = JSON.parse(lsGet('ghost5-settings') || 'null');
     if (saved && typeof saved === 'object') {
-      for (const k of ['opp', 'theme', 'logOpen', 'sound'].concat(CFG_KEYS)) if (k in saved) S[k] = saved[k];
+      for (const k of ['opp', 'theme', 'palette', 'logOpen', 'sound', 'volume'].concat(CFG_KEYS)) if (k in saved) S[k] = saved[k];
       for (const p of [1, 2]) {
         const l = saved.look && saved.look[p];
         if (l && COLORS.some((c) => c.id === l.color)) S.look[p].color = l.color;
@@ -46,6 +54,8 @@
   // Прошлые версии держали «по сети» третьим соперником; теперь это отдельный раздел.
   if (!['bot', 'friend'].includes(S.opp)) S.opp = 'bot';
   if (!['auto', 'light', 'dark'].includes(S.theme)) S.theme = 'auto';
+  if (!PALETTES.some((x) => x.id === S.palette)) S.palette = 'classic';
+  S.volume = Math.max(0, Math.min(100, Number(S.volume) || 0));
   const save = () => lsSet('ghost5-settings', JSON.stringify(S));
   const pickCfg = (src) => { const c = {}; CFG_KEYS.forEach((k) => { c[k] = src[k]; }); return c; };
   const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -326,11 +336,7 @@
   }
 
   // ---------- Moves (shared entry point) ----------
-  boardEl.addEventListener('mouseover', (e) => {
-    const c = e.target.closest('.cell');
-    if (c) spotCell(+c.dataset.i, false);
-  });
-  boardEl.addEventListener('mouseleave', () => spotCell(-1, false));
+  // Подсветка координат только из журнала: над полем она мешала выбирать ход.
   $('log').addEventListener('mouseover', (e) => {
     const p = e.target.closest('.pos');
     if (p && p.dataset.i !== undefined) spotCell(+p.dataset.i, true);
@@ -1051,7 +1057,7 @@
   const SFX = (() => {
     let ctx = null;
     function audio() {
-      if (!S.sound) return null;
+      if (!S.sound || !S.volume) return null;
       try {
         const Ctor = window.AudioContext || window.webkitAudioContext;
         if (!Ctor) return null;
@@ -1069,7 +1075,8 @@
       osc.type = opt.type || 'sine';
       osc.frequency.setValueAtTime(freq, t0);
       if (opt.to) osc.frequency.exponentialRampToValueAtTime(Math.max(40, opt.to), t0 + dur);
-      const vol = opt.gain == null ? 0.07 : opt.gain;
+      const vol = (opt.gain == null ? 0.07 : opt.gain) * (S.volume / 100);
+      if (vol <= 0.0005) return;
       gain.gain.setValueAtTime(0.0001, t0);
       gain.gain.exponentialRampToValueAtTime(vol, t0 + 0.012);
       gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
@@ -1088,7 +1095,12 @@
       tick: () => blip(1150, 0.05, { gain: 0.03, type: 'square' }),
       timeout: () => seq([300, 200], { dur: 0.22, step: 0.14, type: 'square', gain: 0.05 }),
       join: () => seq([587, 880], { dur: 0.2, step: 0.12, type: 'triangle' }),
-      win: () => seq([523, 659, 784, 1047], { dur: 0.32, step: 0.11, type: 'triangle', gain: 0.075 }),
+      bank: () => seq([440, 294], { dur: 0.26, step: 0.16, type: 'triangle', gain: 0.055 }),
+      bankTick: () => blip(520, 0.07, { gain: 0.035, type: 'triangle' }),
+      win: () => {
+        seq([523, 659, 784, 1047, 1319], { dur: 0.34, step: 0.1, type: 'triangle', gain: 0.075 });
+        seq([262, 330, 392], { dur: 0.9, step: 0.01, type: 'sine', gain: 0.035 });
+      },
       lose: () => seq([392, 330, 262], { dur: 0.36, step: 0.15, type: 'triangle', gain: 0.06 })
     };
   })();
@@ -1174,9 +1186,17 @@
       bk.classList.toggle('active', main <= 0 && bankNow > 0);
       bk.classList.toggle('low', main <= 0 && bankNow > 0 && bankNow <= 5);
     }
+    const inBank = main <= 0 && bankNow > 0;
+    const mine = seat && isHuman(seat);
+    // Переход на запас слышно отдельно: иначе время утекает молча.
+    if (mine && inBank && T.phase !== 'bank' + key) { if (T.phase) SFX.bank(); T.phase = 'bank' + key; }
+    if (!inBank && main > 0) T.phase = 'main' + key;
     const sec = Math.ceil(main > 0 ? main : bankNow);
     if (sec !== T.sec) {
-      if (T.sec !== undefined && sec > 0 && sec <= 5 && seat && isHuman(seat)) SFX.tick();
+      if (T.sec !== undefined && sec > 0 && mine) {
+        if (sec <= 5) SFX.tick();
+        else if (inBank && sec % 10 === 0) SFX.bankTick();
+      }
       T.sec = sec;
     }
     if (main > 0 || bankNow > 0) return;
@@ -1625,6 +1645,8 @@
     const el = document.documentElement;
     if (S.theme === 'auto') el.removeAttribute('data-theme');
     else el.setAttribute('data-theme', S.theme);
+    if (S.palette === 'classic') el.removeAttribute('data-palette');
+    else el.setAttribute('data-palette', S.palette);
   }
 
   // Куда игрока пускать: без входа — только на страницу входа, без ника — только в профиль.
@@ -1634,6 +1656,29 @@
     if (R.route === 'game' && !O.code) R.route = 'online';
     if (!O.myId && R.route !== 'play' && R.route !== 'look') R.route = 'play';
     if (O.myId && O.profile !== undefined && (!O.profile || !NICK_RE.test(O.profile.nickname))) R.route = 'profile';
+  }
+
+  function renderSound() {
+    const btn = $('soundBtn'), range = $('volume');
+    const on = !!S.sound && S.volume > 0;
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    btn.title = on ? 'Выключить звук' : 'Включить звук';
+    if (document.activeElement !== range) range.value = String(S.volume);
+  }
+
+  function renderPalettes() {
+    const host = $('palettes');
+    const key = S.palette;
+    if (host.dataset.key === key) return;
+    if (!host.children.length) {
+      host.innerHTML = PALETTES.map((p) =>
+        '<button type="button" class="pal" data-pal="' + p.id + '"><i style="--a: ' + p.a + '; --b: ' + p.b + '"></i>' + p.name + '</button>'
+      ).join('');
+    }
+    host.dataset.key = key;
+    host.querySelectorAll('.pal').forEach((b) => {
+      b.setAttribute('aria-pressed', b.dataset.pal === key ? 'true' : 'false');
+    });
   }
 
   function renderNav(route) {
@@ -1686,6 +1731,7 @@
     $('screenLook').hidden = route !== 'look';
     $('screenProfile').hidden = route !== 'profile';
     renderNav(route);
+    renderSound();
     placeRules(route);
     if (route === 'auth') { renderAuth(); return; }
     renderSettings();
@@ -1693,7 +1739,7 @@
     if (route === 'online') { renderHome(); return; }
     if (route === 'top') { renderTop(); return; }
     if (route === 'profile') { renderProfile(); return; }
-    if (route === 'look') return;
+    if (route === 'look') { renderPalettes(); return; }
     renderPlay();
   }
 
@@ -2061,6 +2107,25 @@
   $('actMove').addEventListener('click', () => setAction(ui.action === 'moveAnchor' ? 'place' : 'moveAnchor'));
   $('resignBtn').addEventListener('click', resign);
   $('resignOnline').addEventListener('click', resign);
+  $('soundBtn').addEventListener('click', () => {
+    if (S.sound && S.volume > 0) S.sound = false;
+    else { S.sound = true; if (!S.volume) S.volume = 70; SFX.move(); }
+    save();
+    render();
+  });
+  $('volume').addEventListener('input', () => {
+    S.volume = Math.max(0, Math.min(100, Number($('volume').value) || 0));
+    if (S.volume > 0) S.sound = true;
+    renderSound();
+  });
+  $('volume').addEventListener('change', () => { save(); if (S.volume) SFX.move(); });
+  $('palettes').addEventListener('click', (e) => {
+    const b = e.target.closest('.pal');
+    if (!b || b.dataset.pal === S.palette) return;
+    S.palette = b.dataset.pal;
+    save();
+    render();
+  });
   $('cancelGame').addEventListener('click', () => askDelete(O.code));
   $('logPanel').addEventListener('toggle', () => { S.logOpen = $('logPanel').open; save(); });
   $('actAnchor').addEventListener('click', () => setAction(ui.action === 'anchor' ? 'place' : 'anchor'));
