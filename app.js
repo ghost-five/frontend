@@ -27,7 +27,7 @@
     { id: 'circle', name: 'Круг' }, { id: 'ring', name: 'Кольцо' }, { id: 'cross', name: 'Крест' },
     { id: 'square', name: 'Квадрат' }, { id: 'diamond', name: 'Ромб' }, { id: 'star', name: 'Звезда' }
   ];
-  const ACT_WORD = { place: 'Сделать ход', shot: 'Выстрелить', anchor: 'Поставить якорь', moveAnchor: 'Сдвинуть якорь', unanchor: 'Забрать якорь' };
+  const ACT_WORD = { place: 'Сделать ход', shot: 'Выстрелить', anchor: 'Поставить якорь', moveAnchor: 'Сдвинуть якорь', magnet: 'Притянуть', unanchor: 'Забрать якорь' };
   const CFG_KEYS = ['size', 'win', 'secret', 'wallTtl', 'mem', 'anchor', 'shots', 'capture', 'timer', 'bank'];
   const NICK_RE = /^[A-Za-zА-Яа-яЁё0-9_.-]{3,20}$/;
   const CODE_RE = /^[A-Z0-9]{4,8}$/;
@@ -76,12 +76,12 @@
 
   // ---------- Controller state ----------
   // Разделы приложения: вход, игра на этом устройстве, лобби, онлайн-партия, вид, профиль.
-  const ROUTES = ['auth', 'play', 'online', 'game', 'top', 'look', 'profile'];
+  const ROUTES = ['auth', 'play', 'online', 'game', 'top', 'look', 'profile', 'rules'];
   const TABS = ['play', 'online', 'top', 'look', 'profile'];
   const R = { route: 'auth' };
   const online = () => R.route === 'game';
   const Lc = { st: null, cfg: null, phase: 'pick', pending1: null, score: { 1: 0, 2: 0, d: 0 }, starter: 2 };
-  const ui = { sel: null, action: 'place', take: false };
+  const ui = { sel: null, action: 'place', take: -1 };
   let busy = false;
   const O = {
     // account
@@ -160,7 +160,7 @@
     if (b > 1 && b < 5) return few;
     return many;
   }
-  const resetUi = () => { ui.sel = null; ui.action = 'place'; ui.take = false; };
+  const resetUi = () => { ui.sel = null; ui.action = 'place'; ui.take = -1; };
 
   function mySeat() {
     if (!O.game || !O.myId) return 0;
@@ -243,6 +243,7 @@
       case 'anchor': return [nameRef(e.p), ': якорь', ...at(e.i, ' на '), '.'];
       case 'anchorSet': return [nameRef(e.p), ': фишка', ...at(e.i, ' '), ' стала якорем.'];
       case 'anchorMove': return [nameRef(e.p), ': якорь', ...at(e.from, ' '), ...at(e.i, ' → '), e.wall ? ', стена сломана.' : '.'];
+      case 'magnet': return [nameRef(e.p), ': магнит', ...at(e.from, ' от якоря '), e.n ? ' притянул фишек: ' + e.n + '.' : ' сработал вхолостую.'];
       case 'unanchor': return [nameRef(e.p), ': якорь', ...at(e.i, ' с '), ' убран в запас.'];
       case 'hit': return [nameRef(e.p), e.guessed ? ': ход угадан, фишка' : ': выстрел, фишка', ...at(e.i, ' '), ' сбита.'];
       case 'miss': return [nameRef(e.p), ': выстрел мимо', ...at(e.i, ', '), '.'];
@@ -364,6 +365,7 @@
     if (a === 'shot' && !E.canShoot(st, cfg, p)) return;
     if (a === 'moveAnchor' && E.anchorOf(st, p) < 0) return;
     if (a === 'anchor' && !E.canAnchor(st, cfg, p)) return;
+    if (a === 'magnet' && !E.canMagnet(st, cfg, p)) return;
     ui.action = a;
     if (ui.sel !== null && !E.validTarget(st, cfg, p, ui.sel, a)) ui.sel = null;
     render();
@@ -378,7 +380,8 @@
     const p = picker();
     if (!p || !isHuman(p) || ui.sel === null || busy) return;
     const cfg = curCfg();
-    const m = { i: ui.sel, kind: ui.action, anchor: false, take: ui.take && E.canUnanchor(st, cfg, p), spent: overSpend(st, cfg) };
+    const take = ui.take >= 0 && E.canUnanchor(st, cfg, p, ui.take) ? ui.take : false;
+    const m = { i: ui.sel, kind: ui.action, anchor: false, take, spent: overSpend(st, cfg) };
     resetUi();
     SFX.move();
     if (online()) { if (cfg.secret) commitMove(m); else onlineSeq(m); return; }
@@ -402,8 +405,17 @@
     }
     if (can('anchor')) out.push({ kind: 'anchor', label: st.cells[i] === p ? 'Сделать эту фишку якорем' : 'Поставить якорь' });
     if (can('moveAnchor')) out.push({ kind: 'moveAnchor', label: 'Сдвинуть якорь сюда', note: st.cells[i] === 3 ? 'проломит стену' : '' });
-    if (E.canUnanchor(st, cfg, p)) {
-      out.push({ take: true, label: ui.take ? 'Не забирать якорь' : 'Забрать якорь', note: 'без хода', on: ui.take });
+    if (can('magnet')) out.push({ kind: 'magnet', label: 'Притянуть по этому лучу', note: 'до 4 фишек' });
+    // На самом якоре предлагаем забрать именно его, иначе — тот, что стоит дольше всех.
+    const own = st.cells[i] === p && st.anchors.includes(i);
+    const which = own && E.canUnanchor(st, cfg, p, i) ? i : E.ripeAnchor(st, cfg, p);
+    if (which >= 0) {
+      const marked = ui.take === which;
+      out.push({
+        take: which,
+        label: marked ? 'Не забирать якорь' : own ? 'Забрать этот якорь' : 'Забрать якорь ' + cellName(st, which),
+        note: 'без хода', on: marked
+      });
     }
     return out;
   }
@@ -458,9 +470,12 @@
     const i = +$('cellMenu').dataset.cell;
     closeCellMenu();
     if (!it) return;
-    if (it.take) {
+    if (typeof it.take === 'number') {
       const st = curSt(), cfg = curCfg(), p = picker();
-      if (st && p && E.canUnanchor(st, cfg, p)) { ui.take = !ui.take; render(); }
+      if (st && p && E.canUnanchor(st, cfg, p, it.take)) {
+        ui.take = ui.take === it.take ? -1 : it.take;
+        if (ui.take >= 0 && ui.action === 'moveAnchor') setAction('place'); else render();
+      }
       return;
     }
     chooseMove(i, it.kind);
@@ -491,7 +506,7 @@
     catch (e) { return Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2); }
   }
   async function hashPlain(pl) {
-    const str = [pl.gameNo, pl.round, pl.i, pl.kind, pl.anchor ? 1 : 0, pl.take ? 1 : 0, pl.spent || 0, pl.salt].join('|');
+    const str = [pl.gameNo, pl.round, pl.i, pl.kind, pl.anchor ? 1 : 0, pl.take === false || pl.take == null ? -1 : pl.take, pl.spent || 0, pl.salt].join('|');
     try {
       const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
       return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join('');
@@ -937,7 +952,7 @@
   async function commitMove(m) {
     const st = O.st, me = mySeat(), code = O.code;
     if (!st || !me) return;
-    const pl = { gameNo: st.gameNo, round: st.round, i: m.i, kind: m.kind, anchor: !!m.anchor, take: !!m.take, spent: m.spent || 0, salt: randSalt() };
+    const pl = { gameNo: st.gameNo, round: st.round, i: m.i, kind: m.kind, anchor: !!m.anchor, take: m.take === false || m.take == null ? false : m.take, spent: m.spent || 0, salt: randSalt() };
     O.plain = pl;
     savePlain(code, pl);
     O.committing = true; O.msg = ''; render();
@@ -990,7 +1005,7 @@
       O.revealing = key;
       const pl = O.plain;
       const { error } = await sb.from('moves')
-        .update({ reveal: { i: pl.i, kind: pl.kind, anchor: pl.anchor, take: !!pl.take, spent: pl.spent || 0, salt: pl.salt } })
+        .update({ reveal: { i: pl.i, kind: pl.kind, anchor: pl.anchor, take: pl.take === false ? false : pl.take, spent: pl.spent || 0, salt: pl.salt } })
         .eq('game_code', code).eq('seat', me).eq('game_no', pl.gameNo).eq('round', pl.round);
       if (error) { O.revealing = ''; gameErr(error, 'Не удалось открыть ход'); return; }
       fetchGame();
@@ -1001,7 +1016,7 @@
       const mv = {};
       for (const s of [1, 2]) {
         const d = O.moves[s], r = d.reveal || {};
-        const pl = { gameNo: d.gameNo, round: d.round, i: r.i, kind: r.kind, anchor: !!r.anchor, take: !!r.take, spent: +r.spent || 0, salt: r.salt };
+        const pl = { gameNo: d.gameNo, round: d.round, i: r.i, kind: r.kind, anchor: !!r.anchor, take: r.take === false || r.take == null ? false : r.take, spent: +r.spent || 0, salt: r.salt };
         const ok = (await hashPlain(pl)) === d.commit;
         let m = { i: pl.i, kind: pl.kind, anchor: pl.anchor, take: pl.take, spent: pl.spent };
         // Подделанный ход отбрасываем целиком, невозможный — только его ходовую часть.
@@ -1291,7 +1306,7 @@
     if (!st || st.over || !p) return;
     // Клетку выбрали, но не успели подтвердить — ход всё равно идёт туда.
     const ready = ui.sel !== null && E.validTarget(st, cfg, p, ui.sel, ui.action);
-    const take = ui.take && E.canUnanchor(st, cfg, p);
+    const take = ui.take >= 0 && E.canUnanchor(st, cfg, p, ui.take) ? ui.take : false;
     const spent = overSpend(st, cfg);
     const m = ready
       ? { i: ui.sel, kind: ui.action, anchor: false, take, spent }
@@ -1410,16 +1425,16 @@
     const me = mySeat() || p;
     const aim = (kind) => kind === 'shot' || kind === 'unanchor';
     const sign = (kind) => kind === 'anchor' || kind === 'moveAnchor';
-    const fromCell = human && ui.action === 'moveAnchor' && p ? E.anchorOf(st, p) : -1;
+    const fromCells = human && p && (ui.action === 'moveAnchor' || ui.action === 'magnet') ? E.anchorsOf(st, p) : [];
     for (let i = 0; i < n * n; i++) {
       const v = st.cells[i];
       let cls = 'cell', inner = '';
       const okHere = human && E.validTarget(st, cfg, p, i, ui.action);
       if (okHere) cls += ' ok';
       // Куда можно поставить или двинуть якорь — помечаем, иначе выбор неочевиден.
-      if (okHere && (ui.action === 'moveAnchor' || (ui.action === 'anchor' && v === p))) cls += ' target';
-      if (i === fromCell) cls += ' from';
-      if (ui.take && human && p && i === E.anchorOf(st, p)) cls += ' leaving';
+      if (okHere && (ui.action === 'moveAnchor' || ui.action === 'magnet' || (ui.action === 'anchor' && v === p))) cls += ' target';
+      if (fromCells.includes(i)) cls += ' from';
+      if (human && ui.take >= 0 && i === ui.take) cls += ' leaving';
       if (v === 3) {
         cls += ' wall' + (fx.burn === i ? ' burn' : '');
         const ttl = walls.get(i);
@@ -1735,7 +1750,7 @@
     if (!signedIn()) { R.route = 'auth'; return; }
     if (R.route === 'auth') R.route = 'play';
     if (R.route === 'game' && !O.code) R.route = 'online';
-    if (!O.myId && R.route !== 'play' && R.route !== 'look') R.route = 'play';
+    if (!O.myId && R.route !== 'play' && R.route !== 'look' && R.route !== 'rules') R.route = 'play';
     if (O.myId && O.profile !== undefined && (!O.profile || !NICK_RE.test(O.profile.nickname))) R.route = 'profile';
   }
 
@@ -1766,6 +1781,7 @@
   function renderNav(route) {
     const tab = route === 'game' ? 'online' : route;
     $('appbar').hidden = route === 'auth';
+    document.querySelector('.help').setAttribute('aria-pressed', route === 'rules' ? 'true' : 'false');
     document.querySelectorAll('#tabs .tab').forEach((b) => {
       const nav = b.dataset.nav;
       b.hidden = !O.myId && (nav === 'online' || nav === 'profile' || nav === 'top');
@@ -1779,14 +1795,15 @@
     $('meNickTop').textContent = O.profile ? O.profile.nickname : O.guest ? 'Гость' : '';
   }
 
-  function openHelp() {
-    const n = E.rowLen(curCfg() || S);
-    $('helpGoal').textContent = n === 4 ? 'четыре своих фишки подряд' : 'пять своих фишек подряд';
-    const d = $('helpBox');
-    if (d.open) return;
-    if (d.showModal) d.showModal(); else d.setAttribute('open', '');
+  // Страница правил подстраивается под то, что выбрано в текущей партии.
+  function renderRules() {
+    const cfg = curCfg() || S;
+    $('docRow').textContent = E.rowLen(cfg) === 4 ? 'четыре фишки' : 'пять фишек';
+    $('docAnchors').textContent = E.ANCHORS === 2 ? 'два' : String(E.ANCHORS);
+    $('docRange').textContent = String(E.MAGNET_RANGE);
+    $('docHold').textContent = String(E.ANCHOR_HOLD);
+    $('docMiss').textContent = E.MISS_LIMIT + ' пропуска подряд';
   }
-  $('helpBox').addEventListener('click', (e) => { if (e.target === $('helpBox')) $('helpBox').close(); });
 
   // Правила партии нужны и на экране игры, и в лобби: карточка одна и переезжает.
   function placeRules(route) {
@@ -1811,6 +1828,7 @@
     $('screenOnline').hidden = route !== 'online';
     $('screenTop').hidden = route !== 'top';
     $('screenLook').hidden = route !== 'look';
+    $('screenRules').hidden = route !== 'rules';
     $('screenProfile').hidden = route !== 'profile';
     renderNav(route);
     renderSound();
@@ -1819,6 +1837,7 @@
     renderSettings();
     renderLooks();
     renderPalettes();
+    if (route === 'rules') { renderRules(); return; }
     if (route === 'online') { renderHome(); return; }
     if (route === 'top') { renderTop(); return; }
     if (route === 'profile') { renderProfile(); return; }
@@ -1881,27 +1900,36 @@
       $('actShot').textContent = 'Выстрел · ' + st.shots[p];
       $('actShot').disabled = !E.canShoot(st, cfg, p);
       const put = $('actAnchor');
-      put.hidden = !showAnchor || onBoard;
+      put.hidden = !showAnchor || !E.canAnchor(st, cfg, p);
       if (!put.hidden) {
         put.textContent = 'Якорь · ' + st.anchorLeft[p];
-        put.disabled = !E.canAnchor(st, cfg, p);
+        put.disabled = false;
         put.setAttribute('aria-pressed', ui.action === 'anchor' ? 'true' : 'false');
       }
+      const mine = showAnchor ? E.anchorsOf(st, p) : [];
       const move = $('actMove');
-      move.hidden = !onBoard;
-      if (onBoard) {
-        move.disabled = false;
+      move.hidden = !mine.length;
+      if (mine.length) {
+        move.disabled = ui.take >= 0;
         move.setAttribute('aria-pressed', ui.action === 'moveAnchor' ? 'true' : 'false');
       }
-      const take = $('actTake');
-      take.hidden = !onBoard;
-      if (onBoard) {
-        const left = E.ANCHOR_HOLD - E.anchorAge(st, cfg, p);
-        take.textContent = left > 0 ? 'Забрать якорь · через ' + left : 'Забрать якорь';
-        take.disabled = left > 0 || ui.action === 'moveAnchor';
-        take.setAttribute('aria-pressed', ui.take ? 'true' : 'false');
+      const magnet = $('actMagnet');
+      const canPull = mine.length && E.canMagnet(st, cfg, p);
+      magnet.hidden = !mine.length;
+      if (mine.length) {
+        magnet.disabled = !canPull;
+        magnet.setAttribute('aria-pressed', ui.action === 'magnet' ? 'true' : 'false');
       }
-      $('actMove').disabled = ui.take;
+      const take = $('actTake');
+      take.hidden = !mine.length;
+      if (mine.length) {
+        // Показываем, сколько ждать ближайшему якорю, который ещё не созрел.
+        const ripe = E.ripeAnchor(st, cfg, p);
+        const wait = Math.min.apply(null, mine.map((a) => E.ANCHOR_HOLD - E.anchorAge(st, cfg, a)));
+        take.textContent = ripe >= 0 ? 'Забрать якорь' : 'Забрать якорь · через ' + Math.max(1, wait);
+        take.disabled = ripe < 0 || ui.action === 'moveAnchor';
+        take.setAttribute('aria-pressed', ui.take >= 0 ? 'true' : 'false');
+      }
     }
 
     const cbtn = $('confirm');
@@ -1958,14 +1986,14 @@
     const host = $('skills' + p);
     const items = [];
     if (cfg.mem) {
-      const count = st.q[p].length + st.anchors.filter((i) => st.cells[i] === p).length;
-      items.push({ t: 'Фишки', v: count + '/' + cfg.mem });
+      items.push({ t: 'Фишки', v: E.counted(st, p).length + '/' + cfg.mem });
     }
     if (cfg.shots) items.push({ t: 'Выстрелы', v: st.shots[p], off: st.shots[p] === 0 });
     if (E.anchorOn(cfg)) {
-      const on = E.anchorOf(st, p);
-      if (on >= 0) items.push({ t: 'Якорь', v: cellName(st, on) });
-      else items.push({ t: 'Якорь', v: st.anchorLeft[p], off: st.anchorLeft[p] === 0 });
+      const on = E.anchorsOf(st, p);
+      if (on.length) items.push({ t: on.length > 1 ? 'Якоря' : 'Якорь', v: on.map((i) => cellName(st, i)).join(' ') });
+      if (st.anchorLeft[p]) items.push({ t: 'В запасе', v: st.anchorLeft[p] });
+      if (!on.length && !st.anchorLeft[p]) items.push({ t: 'Якорь', v: 0, off: true });
     }
     if (cfg.capture) items.push({ t: 'Пары', v: st.caps[p] + '/5' });
     if (cfg.bank && st.bank) items.push({ t: 'Запас', v: fmtSpan(st.bank[p] || 0), off: !st.bank[p] });
@@ -2112,8 +2140,8 @@
     const act = t.dataset.act;
     if (act === 'copy') copyLink();
     else if (act === 'share') shareLink();
-    else if (act === 'help') openHelp();
-    else if (act === 'help-close') $('helpBox').close();
+    else if (act === 'help') go('rules');
+    else if (act === 'rules-back') go(O.code ? 'game' : 'play');
     else if (act === 'reveal' && Lc.phase === 'handoff') { Lc.phase = 'pick2'; render(); }
     else if (act === 'again') confirmMove();
     else if (act === 'see-board') { const st = curSt(); if (st) { O.hideResult = resultKey(st); render(); } }
@@ -2184,10 +2212,14 @@
   $('actTake').addEventListener('click', () => {
     const st = curSt(), cfg = curCfg(), p = picker();
     // Возврат якоря не стоит хода: это отметка к ходу, а не сам ход.
-    if (!st || !p || !isHuman(p) || busy || !E.canUnanchor(st, cfg, p)) return;
-    ui.take = !ui.take;
-    if (ui.take && ui.action === 'moveAnchor') setAction('place'); else render();
+    if (!st || !p || !isHuman(p) || busy) return;
+    if (ui.take >= 0) { ui.take = -1; render(); return; }
+    const ripe = E.ripeAnchor(st, cfg, p);
+    if (ripe < 0) return;
+    ui.take = ripe;
+    if (ui.action === 'moveAnchor') setAction('place'); else render();
   });
+  $('actMagnet').addEventListener('click', () => setAction(ui.action === 'magnet' ? 'place' : 'magnet'));
   $('actMove').addEventListener('click', () => setAction(ui.action === 'moveAnchor' ? 'place' : 'moveAnchor'));
   $('resignBtn').addEventListener('click', resign);
   $('resignOnline').addEventListener('click', resign);

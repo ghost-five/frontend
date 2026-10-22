@@ -2,6 +2,8 @@
 // Чистые функции над простым JSON-состоянием, одинаковые у обоих игроков.
 (function (root) {
   const DIRS = [[0, 1], [1, 0], [1, 1], [1, -1]];
+  // Восемь лучей магнита: по горизонтали, вертикали и обеим диагоналям в обе стороны.
+  const RAYS = [[0, 1], [0, -1], [1, 0], [-1, 0], [1, 1], [-1, -1], [1, -1], [-1, 1]];
   const WIN = 1000000;
   // Веса для «сколько своих фишек в окне»: отдельные для ряда из пяти и из четырёх.
   const W5 = [0, 2, 30, 500, 9000, WIN];
@@ -10,11 +12,17 @@
   const rowLen = (cfg) => (cfg.win === 4 ? 4 : 5);
   // Сколько ходов якорь стоит, прежде чем его можно забрать обратно.
   const ANCHOR_HOLD = 5;
+  // Якорей на игрока, дальность магнита и срок следа, который остаётся после сдвига.
+  const ANCHORS = 2;
+  const MAGNET_RANGE = 5;
+  const ECHO_TTL = 1;
   // Сколько ходов подряд можно пропустить, прежде чем засчитают поражение.
   const MISS_LIMIT = 3;
 
   const E = {
     ANCHOR_HOLD,
+    ANCHORS,
+    MAGNET_RANGE,
     MISS_LIMIT,
     rowLen,
     anchorOn: (cfg) => !!cfg.anchor && cfg.mem > 0,
@@ -22,8 +30,8 @@
     make(cfg, starter, gameNo) {
       const n = cfg.size;
       const st = {
-        n, cells: new Array(n * n).fill(0), q: { 1: [], 2: [] }, anchors: [], anchorAt: { 1: 0, 2: 0 },
-        anchorLeft: { 1: 1, 2: 1 }, shots: { 1: cfg.shots, 2: cfg.shots }, caps: { 1: 0, 2: 0 },
+        n, cells: new Array(n * n).fill(0), q: { 1: [], 2: [] }, anchors: [], anchorSet: {},
+        anchorLeft: { 1: ANCHORS, 2: ANCHORS }, shots: { 1: cfg.shots, 2: cfg.shots }, caps: { 1: 0, 2: 0 },
         walls: [], scar: [], misses: { 1: 0, 2: 0 }, bank: { 1: cfg.bank || 0, 2: cfg.bank || 0 },
         round: 1, moves: 0, turn: starter, starter, gameNo,
         over: false, winner: 0, winLine: [], winReason: '', last: [], log: [],
@@ -72,32 +80,58 @@
       if (anchor && E.anchorOn(cfg) && st.anchorLeft[p] > 0) {
         st.anchors.push(i);
         st.anchorLeft[p]--;
-        if (!st.anchorAt) st.anchorAt = { 1: 0, 2: 0 };
-        st.anchorAt[p] = E.clock(st, cfg);
+        if (!st.anchorSet) st.anchorSet = {};
+        st.anchorSet[i] = E.clock(st, cfg);
       } else st.q[p].push(i);
     },
 
+    anchorsOf: (st, p) => st.anchors.filter((i) => st.cells[i] === p),
     anchorOf(st, p) {
-      for (const i of st.anchors) if (st.cells[i] === p) return i;
-      return -1;
+      const all = E.anchorsOf(st, p);
+      return all.length ? all[0] : -1;
     },
-    anchorAge(st, cfg, p) {
-      const at = (st.anchorAt && st.anchorAt[p]) || 0;
+    anchorAge(st, cfg, i) {
+      const at = (st.anchorSet && st.anchorSet[i]) || 0;
       return E.clock(st, cfg) - at;
     },
     // Якорь можно забрать обратно, когда он простоял своё; он снова идёт в запас.
-    canUnanchor(st, cfg, p) {
+    canUnanchor(st, cfg, p, i) {
       if (!E.anchorOn(cfg) || st.over) return false;
-      return E.anchorOf(st, p) >= 0 && E.anchorAge(st, cfg, p) >= ANCHOR_HOLD;
+      if (typeof i === 'number') {
+        return st.cells[i] === p && st.anchors.includes(i) && E.anchorAge(st, cfg, i) >= ANCHOR_HOLD;
+      }
+      return E.ripeAnchor(st, cfg, p) >= 0;
     },
-    takeAnchor(st, cfg, p, ev) {
-      const i = E.anchorOf(st, p);
-      if (i < 0 || !E.canUnanchor(st, cfg, p)) return false;
+    // Самый долго стоящий якорь: его и забираем, если игрок не указал другой.
+    ripeAnchor(st, cfg, p) {
+      let best = -1, oldest = -1;
+      for (const i of E.anchorsOf(st, p)) {
+        const age = E.anchorAge(st, cfg, i);
+        if (age >= ANCHOR_HOLD && age > oldest) { oldest = age; best = i; }
+      }
+      return best;
+    },
+    takeAnchor(st, cfg, p, which, ev) {
+      const i = typeof which === 'number' && which >= 0 ? which : E.ripeAnchor(st, cfg, p);
+      if (i < 0 || !E.canUnanchor(st, cfg, p, i)) return false;
       E.remove(st, i);
       st.anchorLeft[p]++;
       ev.push({ k: 'unanchor', p, i });
       return true;
     },
+    // Щит: свои фишки вплотную к якорю не стареют и не занимают место в памяти.
+    shielded(st, p, i) {
+      if (!st.anchors.length) return false;
+      const n = st.n, r = (i / n) | 0, c = i % n;
+      for (const a of st.anchors) {
+        if (st.cells[a] !== p) continue;
+        const ar = (a / n) | 0, ac = a % n;
+        if (Math.abs(ar - r) <= 1 && Math.abs(ac - c) <= 1) return true;
+      }
+      return false;
+    },
+    // Сколько фишек игрока считается в лимит памяти.
+    counted: (st, p) => st.q[p].filter((i) => !E.shielded(st, p, i)),
 
     remove(st, i) {
       const p = st.cells[i];
@@ -105,12 +139,33 @@
       st.cells[i] = 0;
       st.q[p] = st.q[p].filter((x) => x !== i);
       st.anchors = st.anchors.filter((x) => x !== i);
+      if (st.anchorSet) delete st.anchorSet[i];
       st.fx.gone.push([i, p]);
+    },
+    // Фишка переезжает на другую клетку, сохраняя своё место в очереди памяти.
+    shift(st, from, to) {
+      const p = st.cells[from];
+      if (p !== 1 && p !== 2) return;
+      st.cells[from] = 0;
+      st.cells[to] = p;
+      const q = st.q[p], k = q.indexOf(from);
+      if (k >= 0) q[k] = to;
+      if (st.anchors.includes(from)) {
+        st.anchors = st.anchors.filter((x) => x !== from).concat(to);
+        if (st.anchorSet && st.anchorSet[from] !== undefined) {
+          st.anchorSet[to] = st.anchorSet[from];
+          delete st.anchorSet[from];
+        }
+      }
+      st.fx.gone.push([from, p]);
+      st.fx.fresh.push(to);
     },
 
     trim(st, cfg, p) {
-      if (!cfg.mem || st.q[p].length <= cfg.mem) return -1;
-      const i = st.q[p][0];
+      if (!cfg.mem) return -1;
+      const free = E.counted(st, p);
+      if (free.length <= cfg.mem) return -1;
+      const i = free[0];
       E.remove(st, i);
       return i;
     },
@@ -143,12 +198,12 @@
       }
     },
 
-    wallTick(st, cfg, skip) {
-      if (!cfg.wallTtl) return 0;
+    // Стена со сроком 0 стоит вечно; остальные остывают, даже если правило выключено.
+    wallTick(st, skip) {
       let cooled = 0;
       const keep = [];
       for (const [i, t] of st.walls) {
-        if (i === skip) { keep.push([i, t]); continue; }
+        if (i === skip || !t) { keep.push([i, t]); continue; }
         if (t <= 1) { st.cells[i] = 0; cooled++; } else keep.push([i, t - 1]);
       }
       st.walls = keep;
@@ -190,8 +245,9 @@
       if (kind === 'anchor') return E.canAnchor(st, cfg, p) && (v === 0 || (v === p && !st.anchors.includes(i)));
       // Якорь выстрелом не берётся, целиться в него незачем.
       if (kind === 'shot') return (v === 3 - p && !st.anchors.includes(i)) || (!!cfg.secret && v === 0);
-      if (kind === 'unanchor') return v === p && st.anchors.includes(i) && E.canUnanchor(st, cfg, p);
-      if (kind === 'moveAnchor') return E.anchorOn(cfg) && E.canMoveAnchor(st, cfg, p, i);
+      if (kind === 'unanchor') return v === p && st.anchors.includes(i) && E.canUnanchor(st, cfg, p, i);
+      if (kind === 'moveAnchor') return E.canMoveAnchor(st, cfg, p, i);
+      if (kind === 'magnet') return !!E.magnetPlan(st, cfg, p, i);
       return false;
     },
 
@@ -201,20 +257,29 @@
       return st.cells.some((v, i) => v === 3 - p && !st.anchors.includes(i));
     },
 
-    // Якорь можно сдвинуть на соседнюю клетку; стена на пути ломается.
-    moveAnchor(st, cfg, p, to, ev) {
-      const from = E.anchorOf(st, p);
-      if (from < 0 || !E.canMoveAnchor(st, cfg, p, to)) return false;
+    // Сдвинуть можно любой свой якорь, стоящий рядом с выбранной клеткой.
+    anchorNear(st, p, to) {
+      const n = st.n, r = (to / n) | 0, c = to % n;
+      let best = -1, oldest = -1;
+      for (const a of E.anchorsOf(st, p)) {
+        const ar = (a / n) | 0, ac = a % n;
+        if (Math.abs(ar - r) > 1 || Math.abs(ac - c) > 1 || a === to) continue;
+        const age = (st.anchorSet && st.anchorSet[a]) || 0;
+        if (best < 0 || age < oldest) { best = a; oldest = age; }
+      }
+      return best;
+    },
+    // Якорь ломает стену только в движении, а на покинутой клетке оставляет след.
+    moveAnchor(st, cfg, p, to, ev, pick) {
+      const from = typeof pick === 'number' && pick >= 0 ? pick : E.anchorNear(st, p, to);
+      if (from < 0 || !E.canMoveAnchor(st, cfg, p, to, from)) return false;
       const wall = st.cells[to] === 3;
       if (wall) st.walls = st.walls.filter(([wi]) => wi !== to);
-      st.cells[from] = 0;
-      st.anchors = st.anchors.filter((x) => x !== from);
-      st.cells[to] = p;
-      st.anchors.push(to);
-      st.fx.gone.push([from, p]);
-      st.fx.fresh.push(to);
+      E.shift(st, from, to);
+      st.cells[from] = 3;
+      st.walls.push([from, ECHO_TTL]);
       ev.push({ k: 'anchorMove', p, from, i: to, wall });
-      return true;
+      return from;
     },
     // Якорем можно сделать и фишку, которая уже стоит на поле.
     setAnchor(st, cfg, p, i, ev) {
@@ -223,20 +288,85 @@
       st.q[p] = st.q[p].filter((x) => x !== i);
       st.anchors.push(i);
       st.anchorLeft[p]--;
-      if (!st.anchorAt) st.anchorAt = { 1: 0, 2: 0 };
-      st.anchorAt[p] = E.clock(st, cfg);
+      if (!st.anchorSet) st.anchorSet = {};
+      st.anchorSet[i] = E.clock(st, cfg);
       st.fx.fresh.push(i);
       ev.push({ k: 'anchorSet', p, i });
       return true;
     },
     canAnchor: (st, cfg, p) => E.anchorOn(cfg) && st.anchorLeft[p] > 0,
 
-    canMoveAnchor(st, cfg, p, to) {
-      const from = E.anchorOf(st, p);
+    canMoveAnchor(st, cfg, p, to, pick) {
+      if (!E.anchorOn(cfg)) return false;
+      const from = typeof pick === 'number' && pick >= 0 ? pick : E.anchorNear(st, p, to);
       if (from < 0) return false;
       const n = st.n, r = (from / n) | 0, c = from % n, rr = (to / n) | 0, cc = to % n;
       if (Math.abs(r - rr) > 1 || Math.abs(c - cc) > 1 || from === to) return false;
       return st.cells[to] === 0 || st.cells[to] === 3;
+    },
+
+    // ---------- Магнит ----------
+    // Якорь тянет к себе фишки по одному лучу: до двух своих и двух чужих, всего четыре.
+    magnetPlan(st, cfg, p, to) {
+      if (!E.anchorOn(cfg)) return null;
+      const n = st.n;
+      for (const from of E.anchorsOf(st, p)) {
+        const r0 = (from / n) | 0, c0 = from % n;
+        for (const [dr, dc] of RAYS) {
+          const line = [];
+          for (let k = 1; k <= MAGNET_RANGE; k++) {
+            const r = r0 + dr * k, c = c0 + dc * k;
+            if (r < 0 || r >= n || c < 0 || c >= n) break;
+            line.push(r * n + c);
+          }
+          if (!line.includes(to)) continue;
+          // Стена на луче глушит магнит целиком.
+          if (line.some((i) => st.cells[i] === 3)) return null;
+          if (!line.some((i) => st.cells[i] === 1 || st.cells[i] === 2)) return null;
+          return { from, line };
+        }
+      }
+      return null;
+    },
+    // Есть ли вообще кого притягивать: нужен хотя бы один луч с фишкой и без стены.
+    canMagnet(st, cfg, p) {
+      if (!E.anchorOn(cfg)) return false;
+      const n = st.n;
+      for (const from of E.anchorsOf(st, p)) {
+        const r0 = (from / n) | 0, c0 = from % n;
+        for (const [dr, dc] of RAYS) {
+          let wall = false, stone = false;
+          for (let k = 1; k <= MAGNET_RANGE; k++) {
+            const r = r0 + dr * k, c = c0 + dc * k;
+            if (r < 0 || r >= n || c < 0 || c >= n) break;
+            const v = st.cells[r * n + c];
+            if (v === 3) { wall = true; break; }
+            if (v === 1 || v === 2) stone = true;
+          }
+          if (!wall && stone) return true;
+        }
+      }
+      return false;
+    },
+    doMagnet(st, cfg, p, to, ev) {
+      const plan = E.magnetPlan(st, cfg, p, to);
+      if (!plan) return false;
+      const { from, line } = plan;
+      let mine = 2, foe = 2, left = 4, slot = 0, pulled = 0;
+      for (const cell of line) {
+        const v = st.cells[cell];
+        if (v === 0) continue;
+        // Чужой якорь не сдвинуть: на нём луч и заканчивается.
+        if (st.anchors.includes(cell)) break;
+        const own = v === p;
+        if (left <= 0 || (own ? mine : foe) <= 0) break;
+        const target = line[slot];
+        if (target !== cell) { E.shift(st, cell, target); pulled++; }
+        slot++; left--;
+        if (own) mine--; else foe--;
+      }
+      ev.push({ k: 'magnet', p, i: to, from, n: pulled });
+      return true;
     },
 
     // Тайный ход: оба хода открываются одновременно.
@@ -246,13 +376,14 @@
       const tag = 'Р' + st.round, ev = [], placed = [];
       // Якорь забирают бесплатно и до самого хода: освободившаяся клетка сразу годится.
       for (const [p, m] of [[1, m1], [2, m2]]) E.spend(st, p, m.spent);
-      for (const [p, m] of [[1, m1], [2, m2]]) if (m.take) E.takeAnchor(st, cfg, p, ev);
+      for (const [p, m] of [[1, m1], [2, m2]]) if (m.take) E.takeAnchor(st, cfg, p, m.take, ev);
       // Ход «якорь» на пустую клетку — это тоже постановка фишки.
       const putting = (m) => (m.kind === 'place' || m.kind === 'anchor') && st.cells[m.i] === 0;
       // На какую клетку игрок метит: поставить фишку или привести туда якорь.
       const claim = (p, m) => (putting(m) ? m.i : m.kind === 'moveAnchor' && E.canMoveAnchor(st, cfg, p, m.i) ? m.i : -1);
       const c1 = claim(1, m1), c2 = claim(2, m2);
       let kind = '', newWall = -1;
+      let echo = -1;
       if (c1 >= 0 && c1 === c2) {
         // Оба метили в одну клетку: она выгорает, и ни фишка, ни якорь туда не попадают.
         const hitAnchor = m1.kind === 'moveAnchor' || m2.kind === 'moveAnchor';
@@ -285,8 +416,9 @@
           } else ev.push({ k: 'miss', p, i: m.i });
         }
         for (const [p, m] of [[1, m1], [2, m2]]) {
-          if (m.kind === 'unanchor') E.takeAnchor(st, cfg, p, ev);
-          else if (m.kind === 'moveAnchor') E.moveAnchor(st, cfg, p, m.i, ev);
+          if (m.kind === 'unanchor') E.takeAnchor(st, cfg, p, m.i, ev);
+          else if (m.kind === 'moveAnchor') { const was = E.moveAnchor(st, cfg, p, m.i, ev, m.from); if (was !== false) echo = was; }
+          else if (m.kind === 'magnet') E.doMagnet(st, cfg, p, m.i, ev);
         }
         // Снятие якоря ходом не считается, поэтому в «не успел сходить» оно не входит.
         const acted = new Set(ev.filter((e) => e.k !== 'unanchor').map((e) => e.p));
@@ -300,7 +432,7 @@
         const gone = E.trim(st, cfg, p);
         if (gone >= 0) ev.push({ k: 'vanish', p, i: gone });
       }
-      const cooled = E.wallTick(st, cfg, newWall);
+      const cooled = E.wallTick(st, newWall >= 0 ? newWall : echo);
       if (cooled) ev.push({ k: 'cool', n: cooled });
       E.countMiss(st, ev);
       E.log(st, tag, ev, kind);
@@ -320,7 +452,7 @@
       st.moves++;
       const tag = 'Х' + st.moves, ev = [];
       E.spend(st, p, m.spent);
-      if (m.take) E.takeAnchor(st, cfg, p, ev);
+      if (m.take) E.takeAnchor(st, cfg, p, m.take, ev);
       if (m.kind === 'anchor' && st.cells[m.i] === p) {
         st.last = [m.i];
         E.setAnchor(st, cfg, p, m.i, ev);
@@ -344,10 +476,13 @@
         }
       } else if (m.kind === 'unanchor') {
         st.last = [];
-        E.takeAnchor(st, cfg, p, ev);
+        E.takeAnchor(st, cfg, p, m.i, ev);
       } else if (m.kind === 'moveAnchor') {
         st.last = [];
-        E.moveAnchor(st, cfg, p, m.i, ev);
+        E.moveAnchor(st, cfg, p, m.i, ev, m.from);
+      } else if (m.kind === 'magnet') {
+        st.last = [];
+        E.doMagnet(st, cfg, p, m.i, ev);
       } else {
         // Ход пропущен: кончилось время.
         ev.push({ k: 'pass', p });
