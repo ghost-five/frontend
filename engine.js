@@ -21,7 +21,7 @@
       const st = {
         n, cells: new Array(n * n).fill(0), q: { 1: [], 2: [] }, anchors: [], anchorAt: { 1: 0, 2: 0 },
         anchorLeft: { 1: 1, 2: 1 }, shots: { 1: cfg.shots, 2: cfg.shots }, caps: { 1: 0, 2: 0 },
-        walls: [], round: 1, moves: 0, turn: starter, starter, gameNo,
+        walls: [], scar: [], round: 1, moves: 0, turn: starter, starter, gameNo,
         over: false, winner: 0, winLine: [], winReason: '', last: [], log: [],
         fx: { fresh: [], gone: [], burn: -1 }
       };
@@ -67,7 +67,7 @@
       if (i < 0 || !E.canUnanchor(st, cfg, p)) return false;
       E.remove(st, i);
       st.anchorLeft[p]++;
-      ev.push({ k: 'unanchor', p });
+      ev.push({ k: 'unanchor', p, i });
       return true;
     },
 
@@ -81,9 +81,10 @@
     },
 
     trim(st, cfg, p) {
-      if (!cfg.mem || st.q[p].length <= cfg.mem) return false;
-      E.remove(st, st.q[p][0]);
-      return true;
+      if (!cfg.mem || st.q[p].length <= cfg.mem) return -1;
+      const i = st.q[p][0];
+      E.remove(st, i);
+      return i;
     },
 
     captures(cells, n, i, p) {
@@ -161,6 +162,7 @@
       // Якорь выстрелом не берётся, целиться в него незачем.
       if (kind === 'shot') return (v === 3 - p && !st.anchors.includes(i)) || (!!cfg.secret && v === 0);
       if (kind === 'unanchor') return v === p && st.anchors.includes(i) && E.canUnanchor(st, cfg, p);
+      if (kind === 'moveAnchor') return E.anchorOn(cfg) && E.canMoveAnchor(st, cfg, p, i);
       return false;
     },
 
@@ -170,16 +172,40 @@
       return st.cells.some((v, i) => v === 3 - p && !st.anchors.includes(i));
     },
 
+    // Якорь можно сдвинуть на соседнюю клетку; стена на пути ломается.
+    moveAnchor(st, cfg, p, to, ev) {
+      const from = E.anchorOf(st, p);
+      if (from < 0 || !E.canMoveAnchor(st, cfg, p, to)) return false;
+      const wall = st.cells[to] === 3;
+      if (wall) st.walls = st.walls.filter(([wi]) => wi !== to);
+      st.cells[from] = 0;
+      st.anchors = st.anchors.filter((x) => x !== from);
+      st.cells[to] = p;
+      st.anchors.push(to);
+      st.fx.gone.push([from, p]);
+      st.fx.fresh.push(to);
+      ev.push({ k: 'anchorMove', p, from, i: to, wall });
+      return true;
+    },
+    canMoveAnchor(st, cfg, p, to) {
+      const from = E.anchorOf(st, p);
+      if (from < 0) return false;
+      const n = st.n, r = (from / n) | 0, c = from % n, rr = (to / n) | 0, cc = to % n;
+      if (Math.abs(r - rr) > 1 || Math.abs(c - cc) > 1 || from === to) return false;
+      return st.cells[to] === 0 || st.cells[to] === 3;
+    },
+
     // Тайный ход: оба хода открываются одновременно.
     resolveRound(st, cfg, m1, m2) {
       E.resetFx(st);
+      st.scar = [];
       const tag = 'Р' + st.round, ev = [], placed = [];
       let kind = '', newWall = -1;
       if (m1.kind === 'place' && m2.kind === 'place' && m1.i === m2.i) {
         st.cells[m1.i] = 3;
         st.walls.push([m1.i, cfg.wallTtl || 0]);
         newWall = m1.i; st.fx.burn = m1.i; st.last = [];
-        ev.push({ k: 'burn' }); kind = 'burn';
+        ev.push({ k: 'burn', i: m1.i }); kind = 'burn';
       } else {
         for (const [p, m] of [[1, m1], [2, m2]]) {
           if (m.kind !== 'place' || st.cells[m.i] !== 0) continue;
@@ -187,31 +213,35 @@
           E.place(st, cfg, p, m.i, m.anchor);
           placed.push([p, m.i]);
           st.fx.fresh.push(m.i);
-          if (st.anchors.length > before) ev.push({ k: 'anchor', p });
+          ev.push({ k: st.anchors.length > before ? 'anchor' : 'place', p, i: m.i });
         }
         st.last = placed.map((x) => x[1]);
         for (const [p, m] of [[1, m1], [2, m2]]) {
           if (m.kind !== 'shot' || st.shots[p] <= 0) continue;
           st.shots[p]--;
           const target = st.cells[m.i];
-          if (target === 3 - p && st.anchors.includes(m.i)) ev.push({ k: 'anchorMiss', p });
+          if (target === 3 - p && st.anchors.includes(m.i)) ev.push({ k: 'anchorMiss', p, i: m.i });
           else if (target === 3 - p) {
             const guessed = placed.some(([pp, ii]) => pp === 3 - p && ii === m.i);
             E.remove(st, m.i);
+            st.scar.push([m.i, 3 - p]);
             st.last = st.last.filter((x) => x !== m.i);
-            ev.push({ k: 'hit', p, guessed });
-          } else ev.push({ k: 'miss', p });
+            ev.push({ k: 'hit', p, i: m.i, guessed });
+          } else ev.push({ k: 'miss', p, i: m.i });
         }
         for (const [p, m] of [[1, m1], [2, m2]]) {
           if (m.kind === 'unanchor') E.takeAnchor(st, cfg, p, ev);
+          else if (m.kind === 'moveAnchor') E.moveAnchor(st, cfg, p, m.i, ev);
         }
-        for (const [p, m] of [[1, m1], [2, m2]]) {
-          if (m.kind !== 'place' && m.kind !== 'shot' && m.kind !== 'unanchor') ev.push({ k: 'pass', p });
-        }
+        const acted = new Set(ev.map((e) => e.p));
+        for (const [p, m] of [[1, m1], [2, m2]]) if (!acted.has(p)) ev.push({ k: 'pass', p });
         if (!ev.length) ev.push({ k: 'open' });
       }
       E.doCaptures(st, cfg, placed, ev);
-      for (const p of [1, 2]) if (E.trim(st, cfg, p)) ev.push({ k: 'vanish', p });
+      for (const p of [1, 2]) {
+        const gone = E.trim(st, cfg, p);
+        if (gone >= 0) ev.push({ k: 'vanish', p, i: gone });
+      }
       const cooled = E.wallTick(st, cfg, newWall);
       if (cooled) ev.push({ k: 'cool', n: cooled });
       E.log(st, tag, ev, kind);
@@ -226,26 +256,33 @@
     // Обычные ходы по очереди.
     resolveSeq(st, cfg, p, m) {
       E.resetFx(st);
+      st.scar = [];
       st.moves++;
       const tag = 'Х' + st.moves, ev = [];
       if (m.kind === 'place') {
         const before = st.anchors.length;
         E.place(st, cfg, p, m.i, m.anchor);
-        if (st.anchors.length > before) ev.push({ k: 'anchor', p });
+        ev.push({ k: st.anchors.length > before ? 'anchor' : 'place', p, i: m.i });
         st.fx.fresh.push(m.i); st.last = [m.i];
         E.doCaptures(st, cfg, [[p, m.i]], ev);
-        if (E.trim(st, cfg, p)) ev.push({ k: 'vanish', p });
+        const gone = E.trim(st, cfg, p);
+        if (gone >= 0) ev.push({ k: 'vanish', p, i: gone });
       } else if (m.kind === 'shot') {
         st.shots[p]--;
-        if (st.anchors.includes(m.i)) ev.push({ k: 'anchorMiss', p });
+        if (st.anchors.includes(m.i)) ev.push({ k: 'anchorMiss', p, i: m.i });
         else {
+          const victim = st.cells[m.i];
           E.remove(st, m.i);
+          if (victim) st.scar.push([m.i, victim]);
           st.last = [];
-          ev.push({ k: 'hit', p, guessed: false });
+          ev.push({ k: 'hit', p, i: m.i, guessed: false });
         }
       } else if (m.kind === 'unanchor') {
         st.last = [];
         E.takeAnchor(st, cfg, p, ev);
+      } else if (m.kind === 'moveAnchor') {
+        st.last = [];
+        E.moveAnchor(st, cfg, p, m.i, ev);
       } else {
         // Ход пропущен: кончилось время.
         ev.push({ k: 'pass', p });
@@ -255,6 +292,14 @@
       if (w) E.finish(st, p, w, tag);
       else if (!st.cells.includes(0)) E.finish(st, 0, { line: [], reason: 'full' }, tag);
       else st.turn = 3 - p;
+    },
+
+    // Сдача: победа достаётся сопернику.
+    resign(st, cfg, p) {
+      if (st.over) return;
+      E.resetFx(st);
+      const tag = cfg.secret ? 'Р' + st.round : 'Х' + st.moves;
+      E.finish(st, 3 - p, { line: [], reason: 'resign' }, tag);
     }
   };
 

@@ -60,6 +60,13 @@ create trigger on_auth_user_created
 after insert on auth.users
 for each row execute function public.handle_new_user();
 
+-- Рейтинг и счёт партий. Новый игрок начинает с 1000.
+alter table public.profiles add column if not exists rating int not null default 1000;
+alter table public.profiles add column if not exists wins int not null default 0;
+alter table public.profiles add column if not exists losses int not null default 0;
+alter table public.profiles add column if not exists draws int not null default 0;
+create index if not exists profiles_rating_idx on public.profiles (rating desc);
+
 -- ---------- Друзья ----------
 
 create table if not exists public.friendships (
@@ -304,6 +311,62 @@ begin
 end
 $$;
 
+-- Итог партии: рейтинг считает сама база по сохранённому состоянию,
+-- клиент только сообщает, что партия окончена. Флаг rated не даёт засчитать её дважды.
+alter table public.games add column if not exists rated boolean not null default false;
+
+create or replace function public.report_result(g text)
+returns int
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  rec public.games;
+  w int;
+  r1 int;
+  r2 int;
+  exp1 numeric;
+  s1 numeric;
+  k constant int := 24;
+begin
+  select * into rec from public.games where code = g for update;
+  if not found then return null; end if;
+  if auth.uid() is null or auth.uid() not in (rec.p1, rec.p2) then
+    raise exception 'Считать можно только свою партию';
+  end if;
+  if rec.rated or rec.p2 is null then return null; end if;
+  -- Признак на время транзакции: только с ним сторож пропускает правку рейтинга.
+  perform set_config('app.rating', 'on', true);
+  if coalesce((rec.state ->> 'over')::boolean, false) is not true then return null; end if;
+
+  w := coalesce((rec.state ->> 'winner')::int, 0);
+  select rating into r1 from public.profiles where id = rec.p1;
+  select rating into r2 from public.profiles where id = rec.p2;
+  if r1 is null or r2 is null then return null; end if;
+
+  exp1 := 1.0 / (1.0 + power(10.0, (r2 - r1) / 400.0));
+  s1 := case w when 1 then 1.0 when 2 then 0.0 else 0.5 end;
+
+  update public.profiles
+     set rating = greatest(100, rating + round(k * (s1 - exp1))::int),
+         wins = wins + (case when w = 1 then 1 else 0 end),
+         losses = losses + (case when w = 2 then 1 else 0 end),
+         draws = draws + (case when w = 0 then 1 else 0 end)
+   where id = rec.p1;
+
+  update public.profiles
+     set rating = greatest(100, rating + round(k * ((1.0 - s1) - (1.0 - exp1)))::int),
+         wins = wins + (case when w = 2 then 1 else 0 end),
+         losses = losses + (case when w = 1 then 1 else 0 end),
+         draws = draws + (case when w = 0 then 1 else 0 end)
+   where id = rec.p2;
+
+  update public.games set rated = true where code = g;
+  return w;
+end
+$$;
+
 -- Отказаться от приглашения в партию.
 create or replace function public.decline_game(g text)
 returns void
@@ -319,6 +382,7 @@ $$;
 -- Права на функции.
 revoke all on function public.join_game(text, jsonb) from public, anon;
 revoke all on function public.decline_game(text) from public, anon;
+revoke all on function public.report_result(text) from public, anon;
 revoke all on function public.seat_of(text) from public, anon;
 revoke all on function public.send_friend_request(text) from public, anon;
 revoke all on function public.respond_friend_request(uuid, boolean) from public, anon;
@@ -326,6 +390,7 @@ revoke all on function public.remove_friend(uuid) from public, anon;
 revoke all on function public.are_friends(uuid, uuid) from public, anon;
 grant execute on function public.join_game(text, jsonb) to authenticated;
 grant execute on function public.decline_game(text) to authenticated;
+grant execute on function public.report_result(text) to authenticated;
 grant execute on function public.seat_of(text) to authenticated;
 grant execute on function public.send_friend_request(text) to authenticated;
 grant execute on function public.respond_friend_request(uuid, boolean) to authenticated;
@@ -355,6 +420,28 @@ create policy "profiles insert own" on public.profiles
 drop policy if exists "profiles update own" on public.profiles;
 create policy "profiles update own" on public.profiles
   for update to authenticated using (id = auth.uid()) with check (id = auth.uid());
+
+-- Рейтинг и счётчики игрок себе не правит: их меняет только report_result.
+create or replace function public.profiles_guard()
+returns trigger
+language plpgsql
+as $$
+begin
+  if coalesce(current_setting('app.rating', true), '') <> 'on'
+     and (new.rating, new.wins, new.losses, new.draws) is distinct from (old.rating, old.wins, old.losses, old.draws) then
+    new.rating := old.rating;
+    new.wins := old.wins;
+    new.losses := old.losses;
+    new.draws := old.draws;
+  end if;
+  return new;
+end
+$$;
+
+drop trigger if exists profiles_guard on public.profiles;
+create trigger profiles_guard
+before update on public.profiles
+for each row execute function public.profiles_guard();
 
 -- Дружбу видят только её участники; меняется она только через функции выше.
 drop policy if exists "friendships read own" on public.friendships;

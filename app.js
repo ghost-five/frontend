@@ -25,7 +25,7 @@
 
   // ---------- Settings (per browser) ----------
   const S = {
-    opp: 'bot', theme: 'auto',
+    opp: 'bot', theme: 'auto', logOpen: true,
     size: 13, win: 4, secret: true, wallTtl: 5, mem: 8, anchor: true, shots: 1, capture: false, timer: 0,
     look: { 1: { color: 'cobalt', shape: 'circle' }, 2: { color: 'coral', shape: 'diamond' } }
   };
@@ -34,7 +34,7 @@
   try {
     const saved = JSON.parse(lsGet('ghost5-settings') || 'null');
     if (saved && typeof saved === 'object') {
-      for (const k of ['opp', 'theme'].concat(CFG_KEYS)) if (k in saved) S[k] = saved[k];
+      for (const k of ['opp', 'theme', 'logOpen'].concat(CFG_KEYS)) if (k in saved) S[k] = saved[k];
       for (const p of [1, 2]) {
         const l = saved.look && saved.look[p];
         if (l && COLORS.some((c) => c.id === l.color)) S.look[p].color = l.color;
@@ -65,8 +65,8 @@
 
   // ---------- Controller state ----------
   // Разделы приложения: вход, игра на этом устройстве, лобби, онлайн-партия, вид, профиль.
-  const ROUTES = ['auth', 'play', 'online', 'game', 'look', 'profile'];
-  const TABS = ['play', 'online', 'look', 'profile'];
+  const ROUTES = ['auth', 'play', 'online', 'game', 'top', 'look', 'profile'];
+  const TABS = ['play', 'online', 'top', 'look', 'profile'];
   const R = { route: 'auth' };
   const online = () => R.route === 'game';
   const Lc = { st: null, cfg: null, phase: 'pick', pending1: null, score: { 1: 0, 2: 0, d: 0 }, starter: 2 };
@@ -78,7 +78,8 @@
     authView: 'login', authEmail: '', authBusy: false, authMsg: '', authErr: false,
     profileMsg: '', profileErr: false,
     // home
-    friends: [], games: [], invites: [], names: {}, homeMsg: '', friendMsg: '', friendErr: false,
+    friends: [], games: [], invites: [], names: {}, ratings: {}, top: [], topMsg: '', rated: '',
+    homeMsg: '', friendMsg: '', friendErr: false, confirmResign: false,
     homeChan: null, homePoll: null, homeSeq: 0, confirmRemove: null,
     // one game
     code: null, game: null, st: null, moves: { 1: null, 2: null }, notFound: false,
@@ -101,6 +102,7 @@
     if (was !== route) resetUi();
     syncHash();
     if (route === 'online' && O.myId) refreshHome();
+    if (route === 'top' && O.myId) loadTop();
     render();
     if (route === 'play' && was !== 'play') maybeBot();
   }
@@ -120,6 +122,14 @@
   const lookOf = (p) => curLooks()[p] || S.look[p];
   const colorOf = (p) => COLORS.find((c) => c.id === lookOf(p).color) || COLORS[0];
   const capWord = (s) => s[0].toUpperCase() + s.slice(1);
+  // Русское склонение после числа: 1 победа, 2 победы, 5 побед.
+  function plural(n, one, few, many) {
+    const a = Math.abs(n) % 100, b = a % 10;
+    if (a > 10 && a < 20) return many;
+    if (b === 1) return one;
+    if (b > 1 && b < 5) return few;
+    return many;
+  }
   const resetUi = () => { ui.sel = null; ui.action = 'place'; ui.useAnchor = false; };
 
   function mySeat() {
@@ -160,29 +170,77 @@
   function resultText(w, reason) {
     if (!w) return reason === 'both' ? 'Ничья: победа у обоих в одном раунде.' : 'Ничья: поле заполнено.';
     const who = names()[w];
+    if (reason === 'resign') {
+      const loser = names()[3 - w];
+      if (loser === 'Вы') return 'Вы сдались. Побеждает ' + who + '.';
+      return loser + ' сдаётся. ' + (who === 'Вы' ? 'Побеждаете вы.' : 'Побеждает ' + who + '.');
+    }
     const row = E.rowLen(curCfg()) === 4 ? 'четвёрку' : 'пятёрку';
     if (who === 'Вы') return reason === 'caps' ? 'Победа! Вы захватили 5 пар.' : 'Победа! Вы собрали ' + row + '.';
     return who + (reason === 'caps' ? ' захватывает 5 пар.' : ' собирает ' + row + '.');
   }
-  function evText(e) {
-    const N = (p) => capWord(colorOf(p).nom), G = (p) => colorOf(p).gen;
+  // Нотация клетки: столбцы буквами (без I), строки снизу вверх, как на шахматной доске.
+  const FILES = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  function cellName(st, i) {
+    if (typeof i !== 'number' || i < 0 || !st) return '';
+    const n = st.n;
+    return FILES[i % n] + (n - ((i / n) | 0));
+  }
+  const nameRef = (p) => ({ nm: p });
+  const cellRef = (i) => ({ pos: i });
+  const hasCell = (i) => typeof i === 'number' && i >= 0;
+
+  // Части записи в журнале: строки, имена игроков (их красит цвет) и клетки.
+  function evParts(e) {
+    const at = (i, before) => (hasCell(i) ? [before, cellRef(i)] : []);
     switch (e.k) {
-      case 'start': return e.secret ? 'Новая партия. Оба ходят одновременно.' : 'Новая партия. Первыми ходят ' + colorOf(e.starter).nom + '.';
-      case 'open': return 'Ходы открыты.';
-      case 'burn': return 'Оба выбрали одну клетку. Она сгорела.';
-      case 'anchor': return N(e.p) + ' поставили якорь.';
-      case 'hit': return e.guessed ? N(e.p) + ' угадали ход и сбили новую фишку!' : N(e.p) + ' сбили фишку ' + G(3 - e.p) + '.';
-      case 'miss': return N(e.p) + ' выстрелили мимо.';
-      case 'anchorMiss': return N(e.p) + ' попали в якорь: его не сбить.';
-      case 'unanchor': return N(e.p) + ' забрали якорь обратно.';
-      case 'pass': return N(e.p) + ' не успели сходить.';
-      case 'cap': return N(e.p) + ' захватили ' + (e.n === 1 ? 'пару' : 'пары: ' + e.n) + ' (' + e.total + '/5).';
-      case 'vanish': return 'Исчезла старая фишка ' + G(e.p) + '.';
-      case 'cool': return e.n === 1 ? 'Одна стена остыла.' : 'Остыло стен: ' + e.n + '.';
-      case 'result': return resultText(e.w, e.reason);
-      default: return '';
+      case 'start': return e.secret ? ['Новая партия. Оба ходят одновременно.'] : ['Новая партия. Первый ход: ', nameRef(e.starter), '.'];
+      case 'open': return ['Ходы открыты.'];
+      case 'burn': return ['Оба выбрали одну клетку', ...at(e.i, ' '), ' — она сгорела.'];
+      case 'place': return [nameRef(e.p), ...at(e.i, ': '), '.'];
+      case 'anchor': return [nameRef(e.p), ': якорь', ...at(e.i, ' на '), '.'];
+      case 'anchorMove': return [nameRef(e.p), ': якорь', ...at(e.from, ' '), ...at(e.i, ' → '), e.wall ? ', стена сломана.' : '.'];
+      case 'unanchor': return [nameRef(e.p), ': якорь', ...at(e.i, ' с '), ' убран в запас.'];
+      case 'hit': return [nameRef(e.p), e.guessed ? ': ход угадан, фишка' : ': выстрел, фишка', ...at(e.i, ' '), ' сбита.'];
+      case 'miss': return [nameRef(e.p), ': выстрел мимо', ...at(e.i, ', '), '.'];
+      case 'anchorMiss': return [nameRef(e.p), ': выстрел в якорь', ...at(e.i, ' '), ' — его не сбить.'];
+      case 'cap': return [nameRef(e.p), ': ' + (e.n === 1 ? 'захвачена пара' : 'захвачено пар: ' + e.n) + ' (' + e.total + '/5).'];
+      case 'vanish': return [nameRef(e.p), ': исчезла старая фишка', ...at(e.i, ' '), '.'];
+      case 'cool': return [e.n === 1 ? 'Одна стена остыла.' : 'Остыло стен: ' + e.n + '.'];
+      case 'pass': return [nameRef(e.p), ': ход пропущен.'];
+      case 'result': return [resultText(e.w, e.reason)];
+      default: return [];
     }
   }
+
+  function renderLog(st) {
+    const log = $('log');
+    log.innerHTML = '';
+    const nm = names();
+    for (const rec of st.log) {
+      const row = li(rec.kind || '');
+      const b = document.createElement('b');
+      b.textContent = rec.tag;
+      const box = document.createElement('span');
+      for (const e of rec.ev) {
+        const parts = evParts(e);
+        if (!parts.length) continue;
+        const one = document.createElement('span');
+        one.className = 'ev ev-' + e.k;
+        for (const part of parts) {
+          if (typeof part === 'string') { one.appendChild(document.createTextNode(part)); continue; }
+          const el = document.createElement('span');
+          if (part.nm !== undefined) { el.className = 'nm n' + part.nm; el.textContent = nm[part.nm]; }
+          else { el.className = 'pos'; el.textContent = cellName(st, part.pos); }
+          one.appendChild(el);
+        }
+        box.appendChild(one);
+      }
+      row.append(b, box);
+      log.appendChild(row);
+    }
+  }
+
   function cfgSummary(cfg) {
     if (!cfg) return '';
     const parts = [cfg.size + '×' + cfg.size, E.rowLen(cfg) + ' в ряд'];
@@ -252,6 +310,7 @@
     if (!st || !p || !isHuman(p) || busy) return;
     if (a === 'shot' && !E.canShoot(st, cfg, p)) return;
     if (a === 'unanchor' && !E.canUnanchor(st, cfg, p)) return;
+    if (a === 'moveAnchor' && E.anchorOf(st, p) < 0) return;
     ui.action = a;
     if (a !== 'place') ui.useAnchor = false;
     if (ui.sel !== null && !E.validTarget(st, cfg, p, ui.sel, a)) ui.sel = null;
@@ -330,9 +389,12 @@
   async function fetchNames(ids) {
     const need = [...new Set(ids.filter(Boolean))];
     if (!sb || !need.length) return;
-    const { data } = await sb.from('profiles').select('id,nickname').in('id', need);
+    const { data } = await sb.from('profiles').select('id,nickname,rating').in('id', need);
     let changed = false;
-    (data || []).forEach((r) => { if (O.names[r.id] !== r.nickname) { O.names[r.id] = r.nickname; changed = true; } });
+    (data || []).forEach((r) => {
+      if (O.names[r.id] !== r.nickname) { O.names[r.id] = r.nickname; changed = true; }
+      if (O.ratings[r.id] !== r.rating) { O.ratings[r.id] = r.rating; changed = true; }
+    });
     if (changed) render();
   }
 
@@ -389,10 +451,10 @@
     go('auth');
   }
   async function loadProfile() {
-    const { data, error } = await sb.from('profiles').select('id,nickname').eq('id', O.myId).maybeSingle();
+    const { data, error } = await sb.from('profiles').select('id,nickname,rating,wins,losses,draws').eq('id', O.myId).maybeSingle();
     if (error) { O.profile = null; O.homeMsg = 'Не удалось загрузить профиль: ' + errText(error); render(); return; }
     O.profile = data || null;
-    if (data) O.names[data.id] = data.nickname;
+    if (data) { O.names[data.id] = data.nickname; O.ratings[data.id] = data.rating; }
     render();
   }
 
@@ -477,7 +539,7 @@
       render();
       return;
     }
-    O.profile = { id: O.myId, nickname: nick };
+    O.profile = Object.assign({}, O.profile, { id: O.myId, nickname: nick });
     O.names[O.myId] = nick;
     O.profileErr = false; O.profileMsg = 'Ник сохранён.';
     render();
@@ -678,10 +740,11 @@
       const key = O.st.gameNo + ':' + O.st.round;
       if (O.revealing && O.revealing !== key) O.revealing = '';
     }
-    const ids = [g.data.p1, g.data.p2, g.data.invitee].filter((x) => x && !O.names[x]);
+    const ids = [g.data.p1, g.data.p2, g.data.invitee].filter((x) => x && (!O.names[x] || O.ratings[x] === undefined));
     if (ids.length) fetchNames(ids);
     render();
     tick();
+    if (O.st && O.st.over) reportResult();
   }
 
   async function joinGame() {
@@ -801,8 +864,11 @@
   async function onlineRematch() {
     const g = O.game, st = O.st, code = O.code;
     if (!g || !st) return;
-    const st2 = E.make(g.cfg, 3 - st.starter, st.gameNo + 1);
-    const { error } = await sb.from('games').update({ state: st2 })
+    // После партии правила можно поменять: новую начинаем с теми, что выбраны сейчас.
+    const cfg = pickCfg(S);
+    const st2 = E.make(cfg, 3 - st.starter, st.gameNo + 1);
+    O.rated = '';
+    const { error } = await sb.from('games').update({ cfg, state: st2, rated: false })
       .eq('code', code).eq('state->>gameNo', String(st.gameNo));
     if (gameErr(error, 'Не удалось начать новую партию')) return;
     fetchGame();
@@ -839,6 +905,67 @@
   function shareLink() {
     if (!O.code || !navigator.share) return copyLink();
     navigator.share({ title: 'Ghost Five', text: 'Сыграем? Код партии ' + O.code, url: gameLink(O.code) }).catch(() => {});
+  }
+
+  async function loadTop() {
+    if (!sb || !O.myId) return;
+    O.topMsg = '';
+    const { data, error } = await sb.from('profiles')
+      .select('id,nickname,rating,wins,losses,draws')
+      .order('rating', { ascending: false })
+      .limit(50);
+    if (error) { O.topMsg = 'Не удалось загрузить таблицу: ' + errText(error); render(); return; }
+    O.top = data || [];
+    O.top.forEach((r) => { O.names[r.id] = r.nickname; O.ratings[r.id] = r.rating; });
+    render();
+  }
+
+  // Итог считает база: она сама смотрит на сохранённое состояние партии.
+  async function reportResult() {
+    const g = O.game, st = O.st, code = O.code;
+    if (!sb || !g || !st || !st.over || !g.p2 || g.rated) return;
+    const key = code + ':' + st.gameNo;
+    if (O.rated === key) return;
+    O.rated = key;
+    const { error } = await sb.rpc('report_result', { g: code });
+    if (error) { O.rated = ''; return; }
+    await fetchNames([g.p1, g.p2].filter(Boolean));
+    loadProfile();
+    fetchGame();
+  }
+
+  function resign() {
+    const st = curSt(), cfg = curCfg();
+    if (!st || st.over) return;
+    if (!O.confirmResign) {
+      O.confirmResign = true;
+      render();
+      setTimeout(() => { if (O.confirmResign) { O.confirmResign = false; render(); } }, 4000);
+      return;
+    }
+    O.confirmResign = false;
+    resetUi();
+    if (online()) { onlineResign(); return; }
+    const p = picker() || 1;
+    E.resign(st, cfg, p);
+    bumpScore(Lc.score, st);
+    busy = false;
+    render();
+  }
+
+  async function onlineResign() {
+    const g = O.game, st = O.st, me = mySeat(), code = O.code;
+    if (!g || !st || !me || st.over) return;
+    const st2 = clone(st);
+    E.resign(st2, g.cfg, me);
+    const sc = Object.assign({ 1: 0, 2: 0, d: 0 }, g.score);
+    bumpScore(sc, st2);
+    O.committing = true; render();
+    const { error } = await sb.from('games').update({ state: st2, score: sc })
+      .eq('code', code).eq('state->>gameNo', String(st.gameNo));
+    O.committing = false;
+    if (gameErr(error, 'Не удалось сдаться')) return;
+    fetchGame();
   }
 
   // ---------- Время на ход ----------
@@ -892,7 +1019,20 @@
   // ---------- Rendering: game ----------
   let builtN = 0, cellEls = [], cellKeys = [];
   let fxKey = '', fxDone = '';
+  function renderAxes(n) {
+    const ranks = $('ranks'), files = $('files');
+    if (ranks.dataset.n === String(n)) return;
+    ranks.dataset.n = String(n);
+    ranks.style.gridTemplateRows = 'repeat(' + n + ', minmax(0, 1fr))';
+    files.style.gridTemplateColumns = 'repeat(' + n + ', minmax(0, 1fr))';
+    let r = '', f = '';
+    for (let k = 0; k < n; k++) { r += '<span>' + (n - k) + '</span>'; f += '<span>' + FILES[k] + '</span>'; }
+    ranks.innerHTML = r;
+    files.innerHTML = f;
+  }
+
   function ensureBoard(n) {
+    renderAxes(n);
     if (builtN === n) return;
     builtN = n;
     boardEl.innerHTML = '';
@@ -930,6 +1070,7 @@
     const life = new Map();
     if (L) for (const pl of [1, 2]) st.q[pl].forEach((idx, j) => life.set(idx, L - st.q[pl].length + j + 1));
     const walls = new Map(st.walls);
+    const scars = new Map(st.scar || []);
     const anchors = new Set(st.anchors);
     const winSet = new Set(st.winLine);
     const fresh = new Set(fx.fresh);
@@ -959,6 +1100,8 @@
         if (st.last.includes(i)) cls += ' last';
       } else {
         cls += ' empty';
+        const sc = scars.get(i);
+        if (sc) cls += ' scar s' + sc;
         const van = fx.gone.find((x) => x[0] === i);
         if (van) inner = '<span class="stone p' + van[1] + sh(van[1]) + ' vanish"></span>';
         else if (ui.sel === i && p && ui.action === 'place') {
@@ -978,10 +1121,11 @@
   }
 
   function statusText(st, cfg) {
-    const actWord = ui.action === 'shot' ? 'Выстрелить' : ui.action === 'unanchor' ? 'Забрать якорь' : 'Сделать ход';
+    const actWord = ui.action === 'shot' ? 'Выстрелить' : ui.action === 'unanchor' ? 'Забрать якорь' : ui.action === 'moveAnchor' ? 'Сдвинуть якорь' : 'Сделать ход';
     const pickHint = ui.action === 'unanchor'
       ? 'Якорь выбран. Нажмите «Забрать якорь»: это будет ваш ход.'
       : 'Клетка выбрана. Нажмите «' + actWord + '» или выберите другую.';
+    const moveHint = 'Выберите соседнюю клетку: пустую или со стеной — якорь её проломит.';
     const shotHint = cfg.secret ? 'Выберите цель: фишку соперника или пустую клетку, куда он может сходить.' : 'Выберите фишку соперника.';
     if (st.over) return resultText(st.winner, st.winReason);
     if (online()) {
@@ -998,18 +1142,21 @@
         if (seatDone(me)) return theirs ? 'Открываем ходы…' : 'Ваш ход принят и спрятан. Ждём соперника.';
         if (ui.sel !== null) return pickHint;
         if (ui.action === 'shot') return shotHint;
+        if (ui.action === 'moveAnchor') return moveHint;
         if (moveCurrent(O.moves[me], st)) return 'Ход потерялся после перезагрузки. Выберите его заново.';
         return theirs ? 'Соперник уже сходил. Ваш ход.' : 'Выберите клетку. Соперник ходит одновременно с вами.';
       }
       if (st.turn !== me) return 'Ход соперника.';
       if (ui.sel !== null) return pickHint;
       if (ui.action === 'shot') return shotHint;
+      if (ui.action === 'moveAnchor') return moveHint;
       return 'Ваш ход.';
     }
     if (busy) return 'Бот думает…';
     if (cfg.secret && Lc.phase === 'handoff') return 'Ход Игрока 1 спрятан.';
     if (ui.sel !== null) return pickHint;
     if (ui.action === 'shot') return shotHint;
+    if (ui.action === 'moveAnchor') return moveHint;
     if (cfg.secret) {
       if (Lc.phase === 'pick1') return S.opp === 'bot' ? 'Выберите клетку. Бот ходит одновременно и не видит ваш выбор.' : 'Игрок 1 выбирает ход. Игрок 2, не смотрите.';
       return 'Игрок 2 выбирает ход. Игрок 1, не смотрите.';
@@ -1205,7 +1352,7 @@
     $('appbar').hidden = route === 'auth';
     document.querySelectorAll('#tabs .tab').forEach((b) => {
       const nav = b.dataset.nav;
-      b.hidden = !O.myId && (nav === 'online' || nav === 'profile');
+      b.hidden = !O.myId && (nav === 'online' || nav === 'profile' || nav === 'top');
       if (nav === tab) b.setAttribute('aria-current', 'page');
       else b.removeAttribute('aria-current');
     });
@@ -1246,6 +1393,7 @@
     $('screenAuth').hidden = route !== 'auth';
     $('screenPlay').hidden = !(route === 'play' || route === 'game');
     $('screenOnline').hidden = route !== 'online';
+    $('screenTop').hidden = route !== 'top';
     $('screenLook').hidden = route !== 'look';
     $('screenProfile').hidden = route !== 'profile';
     renderNav(route);
@@ -1254,6 +1402,7 @@
     renderSettings();
     renderLooks();
     if (route === 'online') { renderHome(); return; }
+    if (route === 'top') { renderTop(); return; }
     if (route === 'profile') { renderProfile(); return; }
     if (route === 'look') return;
     renderPlay();
@@ -1272,6 +1421,7 @@
       $('copyBtn').hidden = !byLink;
     }
     const st = curSt(), cfg = curCfg();
+    $('logPanel').open = !!S.logOpen;
     $('boardWrap').hidden = !st;
     $('actions').hidden = !st;
     $('players').hidden = !st;
@@ -1312,6 +1462,12 @@
       $('actShot').setAttribute('aria-pressed', ui.action === 'shot' ? 'true' : 'false');
       $('actShot').textContent = 'Выстрел · ' + st.shots[p];
       $('actShot').disabled = !E.canShoot(st, cfg, p);
+      const move = $('actMove');
+      move.hidden = !onBoard;
+      if (onBoard) {
+        move.disabled = false;
+        move.setAttribute('aria-pressed', ui.action === 'moveAnchor' ? 'true' : 'false');
+      }
       const take = $('actTake');
       take.hidden = !onBoard;
       if (onBoard) {
@@ -1332,49 +1488,88 @@
       cbtn.textContent = 'Ещё партия';
       cbtn.disabled = isOnline && !mySeat();
     } else {
-      cbtn.textContent = ui.action === 'shot' ? 'Выстрелить' : ui.action === 'unanchor' ? 'Забрать якорь' : 'Сделать ход';
+      cbtn.textContent = ui.action === 'shot' ? 'Выстрелить' : ui.action === 'unanchor' ? 'Забрать якорь' : ui.action === 'moveAnchor' ? 'Сдвинуть якорь' : 'Сделать ход';
       cbtn.disabled = !(ui.sel !== null && human);
     }
     cbtn.hidden = waiting;
     $('cancelMove').hidden = !waiting;
     $('newGame').hidden = st.over;
+    const canResign = !st.over && (isOnline ? !!mySeat() && !!O.game.p2 : true);
+    const rbtn = isOnline ? $('resignOnline') : $('resignBtn');
+    const other = isOnline ? $('resignBtn') : $('resignOnline');
+    other.hidden = true;
+    rbtn.hidden = !canResign;
+    rbtn.textContent = O.confirmResign ? 'Точно сдаться?' : 'Сдаться';
     tickTimer();
 
     const nm = names();
     const score = isOnline ? Object.assign({ 1: 0, 2: 0, d: 0 }, O.game.score) : Lc.score;
     for (const pl of [1, 2]) {
       $('name' + pl).textContent = nm[pl];
-      const count = st.q[pl].length + st.anchors.filter((i) => st.cells[i] === pl).length;
-      $('meta' + pl).textContent = colorOf(pl).nom + ' · на поле ' + count + (cfg.mem ? ' / ' + cfg.mem : '');
-      const extra = [];
-      if (cfg.shots) extra.push('выстрелы ' + st.shots[pl]);
-      if (E.anchorOn(cfg)) extra.push('якорь ' + st.anchorLeft[pl]);
-      if (cfg.capture) extra.push('пары ' + st.caps[pl] + '/5');
-      if (isOnline && cfg.secret && !st.over && O.game.p2 && seatDone(pl)) extra.push('ход сделан');
-      $('extra' + pl).textContent = extra.join(' · ');
-      $('extra' + pl).hidden = !extra.length;
+      $('meta' + pl).textContent = colorOf(pl).nom;
+      const rk = $('rank' + pl);
+      const uid = isOnline && O.game ? (pl === 1 ? O.game.p1 : O.game.p2) : null;
+      const elo = uid ? O.ratings[uid] : null;
+      rk.hidden = !elo;
+      if (elo) rk.textContent = elo;
+      renderSkills(pl, st, cfg, isOnline);
       $('wins' + pl).textContent = score[pl];
+      $('winsWord' + pl).textContent = plural(score[pl], 'победа', 'победы', 'побед');
       let active;
       if (st.over) active = st.winner === pl;
       else if (isOnline) active = !!O.game.p2 && (cfg.secret ? !seatDone(pl) : st.turn === pl);
       else active = cfg.secret ? Lc.phase === 'pick' + pl : st.turn === pl;
       $('card' + pl).classList.toggle('active', active);
     }
-    $('draws').textContent = 'Ничьих: ' + score.d;
+    $('draws').textContent = score.d + ' ' + plural(score.d, 'ничья', 'ничьи', 'ничьих');
 
-    const log = $('log');
-    log.innerHTML = '';
-    for (const e of st.log) {
-      const row = li(e.kind || '');
-      const b = document.createElement('b'); b.textContent = e.tag;
-      const sp = document.createElement('span'); sp.textContent = e.ev.map(evText).filter(Boolean).join(' ');
-      row.append(b, sp);
-      log.appendChild(row);
+    renderLog(st);
+  }
+
+  function renderSkills(p, st, cfg, isOnline) {
+    const host = $('skills' + p);
+    const items = [];
+    if (cfg.mem) {
+      const count = st.q[p].length + st.anchors.filter((i) => st.cells[i] === p).length;
+      items.push({ t: 'Фишки', v: count + '/' + cfg.mem });
     }
+    if (cfg.shots) items.push({ t: 'Выстрелы', v: st.shots[p], off: st.shots[p] === 0 });
+    if (E.anchorOn(cfg)) {
+      const on = E.anchorOf(st, p);
+      if (on >= 0) items.push({ t: 'Якорь', v: cellName(st, on) });
+      else items.push({ t: 'Якорь', v: st.anchorLeft[p], off: st.anchorLeft[p] === 0 });
+    }
+    if (cfg.capture) items.push({ t: 'Пары', v: st.caps[p] + '/5' });
+    if (isOnline && cfg.secret && !st.over && O.game && O.game.p2 && seatDone(p)) items.push({ t: 'Ход сделан', v: '✓' });
+    const key = JSON.stringify(items);
+    if (host.dataset.key === key) return;
+    host.dataset.key = key;
+    host.innerHTML = items.map((x) => '<span class="skill' + (x.off ? ' off' : '') + '">' + esc(x.t) + ' <b>' + esc(String(x.v)) + '</b></span>').join('');
+  }
+
+  function renderTop() {
+    setNote($('topNote'), O.topMsg, true);
+    const host = $('leaders');
+    host.innerHTML = '';
+    if (!O.top.length) { emptyLine(host, 'Пока никто не сыграл ни одной сетевой партии.'); return; }
+    O.top.forEach((r, k) => {
+      const row = li(r.id === O.myId ? 'me' : '');
+      const place = document.createElement('span'); place.className = 'place'; place.textContent = '#' + (k + 1);
+      const who = document.createElement('span'); who.className = 'who-name'; who.textContent = r.nickname;
+      const score = document.createElement('span'); score.className = 'score';
+      const w = r.wins || 0, l = r.losses || 0, d = r.draws || 0;
+      score.textContent = w + ' ' + plural(w, 'победа', 'победы', 'побед')
+        + ' · ' + l + ' ' + plural(l, 'поражение', 'поражения', 'поражений')
+        + ' · ' + d + ' ' + plural(d, 'ничья', 'ничьи', 'ничьих');
+      const elo = document.createElement('span'); elo.className = 'elo'; elo.textContent = r.rating;
+      row.append(place, who, score, elo);
+      host.appendChild(row);
+    });
   }
 
   function renderSettings() {
-    const locked = online() && !!O.game;
+    const st = curSt();
+    const locked = online() && !!O.game && !(st && st.over);
     const src = locked ? O.game.cfg : S;
     document.querySelectorAll('.seg').forEach((seg) => {
       const key = seg.dataset.key;
@@ -1397,6 +1592,7 @@
     $('rulesCard').classList.toggle('locked', locked);
     $('rulesNote').textContent = locked ? cfgSummary(src) + '. Правила выбрал создатель партии.'
       : R.route === 'online' ? 'Эти правила получит партия, которую вы создадите.'
+      : online() ? 'Партия окончена: эти правила получит следующая.'
       : 'Смена правил сразу начинает новую партию.';
   }
 
@@ -1556,6 +1752,10 @@
   $('actPlace').addEventListener('click', () => setAction('place'));
   $('actShot').addEventListener('click', () => setAction(ui.action === 'shot' ? 'place' : 'shot'));
   $('actTake').addEventListener('click', () => setAction(ui.action === 'unanchor' ? 'place' : 'unanchor'));
+  $('actMove').addEventListener('click', () => setAction(ui.action === 'moveAnchor' ? 'place' : 'moveAnchor'));
+  $('resignBtn').addEventListener('click', resign);
+  $('resignOnline').addEventListener('click', resign);
+  $('logPanel').addEventListener('toggle', () => { S.logOpen = $('logPanel').open; save(); });
   $('anchorBtn').addEventListener('click', () => {
     const st = curSt(), p = picker();
     if (!st || !p || !isHuman(p) || st.anchorLeft[p] === 0 || ui.action !== 'place') return;

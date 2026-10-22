@@ -247,7 +247,7 @@ input:focus { outline: 0; border-color: var(--brand); background: var(--surface)
   padding: 8px 10px 8px 16px; box-shadow: var(--shadow);
 }
 .playbar .btn, .playbar .chip { margin-left: auto; }
-.playbar .chip + .chip, .playbar .chip + .btn { margin-left: 0; }
+.playbar .chip + .chip, .playbar .chip + .btn, .playbar .btn + .chip { margin-left: 0; }
 .gb-code { font-size: 14px; display: inline-flex; align-items: center; gap: 8px; }
 .gb-code b { font-family: var(--mono); font-weight: 500; letter-spacing: .14em; }
 .gb-note { flex-basis: 100%; font-size: 12.5px; color: var(--muted); word-break: break-all; padding-inline: 6px; }
@@ -489,3 +489,72 @@ input:focus { outline: 0; border-color: var(--brand); background: var(--surface)
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- Подписи осей ---------- */
+.board-frame {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto;
+  gap: 4px; width: 100%;
+}
+.ranks, .files {
+  display: grid; font-family: var(--mono); font-size: 10px; color: var(--muted);
+  font-variant-numeric: tabular-nums; user-select: none;
+}
+.ranks { grid-column: 1; grid-row: 1; padding: 6px 0; }
+.ranks span { display: grid; place-items: center; }
+.files { grid-column: 2; grid-row: 2; padding: 0 6px; }
+.files span { display: grid; place-items: center; }
+.board-frame .board { grid-column: 2; grid-row: 1; }
+
+/* ---------- След от сбитой фишки ---------- */
+.cell.scar::before {
+  content: ""; position: absolute; inset: 24%; border-radius: 50%; pointer-events: none;
+  border: 1.5px dashed var(--sc); opacity: .85;
+}
+.cell.scar.s1 { --sc: var(--p1); }
+.cell.scar.s2 { --sc: var(--p2); }
+
+/* ---------- Навыки игрока ---------- */
+.skills { display: flex; flex-wrap: wrap; gap: 5px; }
+.skill {
+  display: inline-flex; align-items: baseline; gap: 5px; padding: 3px 9px; border-radius: 999px;
+  font-size: 12px; font-weight: 500; white-space: nowrap;
+  background: color-mix(in srgb, var(--pc) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pc) 35%, transparent); color: var(--ink);
+}
+.skill b { font-family: var(--mono); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--pc); }
+.skill.off { opacity: .4; }
+.rank {
+  font-family: var(--mono); font-size: 11px; font-weight: 500; color: var(--muted);
+  padding: 2px 7px; border: 1px solid var(--rule); border-radius: 999px; flex: none;
+}
+
+/* ---------- Таблица лидеров ---------- */
+.lead { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; counter-reset: place; }
+.lead li {
+  display: grid; grid-template-columns: 2.2em minmax(0, 1fr) auto auto; gap: 12px; align-items: center;
+  padding: 10px 14px; border-radius: var(--r); background: var(--surface-2); border: 1px solid transparent;
+}
+.lead li.me { border-color: color-mix(in srgb, var(--brand) 50%, var(--rule)); background: color-mix(in srgb, var(--brand) 9%, var(--surface-2)); }
+.lead .place { font-family: var(--mono); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.lead li:nth-child(1) .place, .lead li:nth-child(2) .place, .lead li:nth-child(3) .place { color: var(--brand); font-weight: 600; }
+.lead .who-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lead .score { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.lead .elo { font-family: var(--display); font-size: 17px; font-weight: 500; font-variant-numeric: tabular-nums; }
+@media (max-width: 520px) {
+  .lead li { grid-template-columns: 2em minmax(0, 1fr) auto; }
+  .lead .score { grid-column: 2 / -1; }
+}
+
+/* ---------- Журнал: ники цветом игрока ---------- */
+.log .nm { font-weight: 600; color: var(--pc); }
+.log .nm.n1 { --pc: var(--p1); }
+.log .nm.n2 { --pc: var(--p2); }
+.log .pos { font-family: var(--mono); font-size: 12px; }
+.log .ev-anchor, .log .ev-unanchor, .log .ev-anchorMove { color: var(--brand); }
+.log .ev-hit { color: var(--alert); }
+.log .ev-cap { color: var(--ok); }
+.log .ev-burn, .log .ev-cool { color: color-mix(in srgb, var(--burn) 70%, var(--ink)); }
+.log .ev-pass, .log .ev-miss, .log .ev-vanish { color: var(--muted); }
+.log li { flex-wrap: wrap; }
+.log li > span { display: flex; flex-wrap: wrap; gap: 4px; }
+.log .ev { display: inline; }

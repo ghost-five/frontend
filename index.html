@@ -24,6 +24,7 @@
     <nav class="tabs" id="tabs" aria-label="Разделы">
       <button class="tab" type="button" data-nav="play">Игра</button>
       <button class="tab" type="button" data-nav="online">По сети<span class="nbadge" id="navCount" hidden></span></button>
+      <button class="tab" type="button" data-nav="top">Лидеры</button>
       <button class="tab" type="button" data-nav="look">Вид</button>
       <button class="tab" type="button" data-nav="profile">Профиль</button>
     </nav>
@@ -101,12 +102,14 @@
         <button type="button" data-v="friend">Вдвоём на одном устройстве</button>
       </div>
       <button class="btn ghost" id="newGame" type="button">Новая партия</button>
+      <button class="chip warn" id="resignBtn" type="button">Сдаться</button>
     </div>
     <div class="playbar" id="onlineBar" hidden>
       <span class="gb-code"><span class="live-dot" id="liveDot"></span>Партия <b id="gbCode"></b></span>
       <button class="chip" type="button" data-act="share" id="shareBtn" hidden>Отправить ссылку</button>
       <button class="chip" type="button" data-act="copy" id="copyBtn">Скопировать ссылку</button>
       <button class="chip" type="button" id="toLobby">Все партии</button>
+      <button class="chip warn" type="button" id="resignOnline">Сдаться</button>
       <span class="gb-note" id="gbNote" hidden></span>
     </div>
 
@@ -119,13 +122,18 @@
         </div>
         <p class="msg" id="msg" hidden></p>
         <div class="board-wrap" id="boardWrap">
-          <div class="board" id="board" role="grid" aria-label="Игровое поле"></div>
+          <div class="board-frame">
+            <div class="ranks" id="ranks" aria-hidden="true"></div>
+            <div class="board" id="board" role="grid" aria-label="Игровое поле"></div>
+            <div class="files" id="files" aria-hidden="true"></div>
+          </div>
           <div class="cover" id="cover" hidden><div class="cover-inner"></div></div>
         </div>
         <div class="tools" id="tools" hidden>
           <span class="label">Действие</span>
           <button class="chip" id="actPlace" type="button">Поставить фишку</button>
           <button class="chip" id="actShot" type="button">Выстрел</button>
+          <button class="chip" id="actMove" type="button">Сдвинуть якорь</button>
           <button class="chip" id="actTake" type="button">Забрать якорь</button>
           <button class="chip" id="anchorBtn" type="button">Якорь</button>
         </div>
@@ -138,24 +146,24 @@
       <aside class="playside">
         <div class="players" id="players">
           <div class="pcard p1" id="card1">
-            <div class="pname"><span class="ico"><span class="stone p1" id="ico1"></span></span><span id="name1">Вы</span></div>
+            <div class="pname"><span class="ico"><span class="stone p1" id="ico1"></span></span><span id="name1">Вы</span><span class="rank" id="rank1" hidden></span></div>
             <div class="pmeta" id="meta1"></div>
-            <div class="pmeta" id="extra1"></div>
-            <div class="pwins"><span id="wins1">0</span><small>побед</small></div>
+            <div class="skills" id="skills1"></div>
+            <div class="pwins"><span id="wins1">0</span><small id="winsWord1">побед</small></div>
           </div>
           <div class="pcard p2" id="card2">
-            <div class="pname"><span class="ico"><span class="stone p2" id="ico2"></span></span><span id="name2">Бот</span></div>
+            <div class="pname"><span class="ico"><span class="stone p2" id="ico2"></span></span><span id="name2">Бот</span><span class="rank" id="rank2" hidden></span></div>
             <div class="pmeta" id="meta2"></div>
-            <div class="pmeta" id="extra2"></div>
-            <div class="pwins"><span id="wins2">0</span><small>побед</small></div>
+            <div class="skills" id="skills2"></div>
+            <div class="pwins"><span id="wins2">0</span><small id="winsWord2">побед</small></div>
           </div>
         </div>
         <p class="draws" id="draws">Ничьих: 0</p>
 
-        <section class="card" id="logPanel">
-          <h3 class="card-title">Ход игры</h3>
+        <details class="card fold" id="logPanel" open>
+          <summary class="card-title">Ход игры</summary>
           <ol class="log" id="log"></ol>
-        </section>
+        </details>
 
         <div id="looksSlotPlay"></div>
         <div id="rulesSlotPlay"></div>
@@ -203,6 +211,18 @@
       </div>
       <div class="col" id="rulesSlotOnline"></div>
     </div>
+  </section>
+
+  <!-- Таблица лидеров -->
+  <section class="screen" id="screenTop" hidden>
+    <div class="screen-head">
+      <h2>Таблица лидеров</h2>
+      <p class="sub">Рейтинг меняется после каждой сетевой партии: победа над сильным соперником даёт больше.</p>
+    </div>
+    <p class="note err" id="topNote" hidden></p>
+    <section class="card">
+      <ol class="lead" id="leaders"></ol>
+    </section>
   </section>
 
   <!-- Внешний вид -->
@@ -315,9 +335,11 @@
     <p><strong>Цель:</strong> <span id="helpGoal">собрать ряд из своих фишек</span> по горизонтали, вертикали или диагонали.</p>
     <p><strong>Ход:</strong> нажмите на клетку, чтобы выбрать её, и подтвердите кнопкой «Сделать ход». Повторное нажатие снимает выбор. Пока соперник выбирает, отправленный ход можно отменить.</p>
     <p><strong>Цифра в углу клетки</strong> показывает, через сколько ваших ходов исчезнет фишка или через сколько раундов остынет стена. Фишка в пунктирной рамке исчезнет следующим ходом.</p>
-    <p><strong>Якорь</strong> отмечен знаком ∞ и сплошной рамкой: он не исчезает от времени и его нельзя сбить выстрелом. Простояв пять ходов, он возвращается в запас кнопкой «Забрать якорь» — это ваш ход.</p>
+    <p><strong>Якорь</strong> отмечен знаком ∞ и сплошной рамкой: он не исчезает от времени и его нельзя сбить выстрелом. Его можно сдвинуть на соседнюю клетку — стену на пути он проломит, — а простояв пять ходов, забрать обратно в запас. И то и другое стоит хода.</p>
     <p><strong>Выстрел</strong> сбивает фишку соперника вместо хода. С тайным ходом можно стрелять и в пустую клетку, угадывая, куда он пойдёт.</p>
-    <p><strong>По сети</strong> тайные ходы шифруются: соперник видит только, что вы сходили, а сам ход открывается, когда сходили оба.</p>
+    <p><strong>Клетки подписаны</strong> буквами и цифрами, как на шахматной доске: в журнале справа ходы записаны этой же нотацией. Клетка, с которой сбили фишку, остаётся помеченной на один ход.</p>
+    <p><strong>По сети</strong> тайные ходы шифруются: соперник видит только, что вы сходили, а сам ход открывается, когда сходили оба. После партии рейтинг обоих меняется, общий список — в разделе «Лидеры».</p>
+    <p><strong>Сдаться</strong> можно кнопкой в панели над полем: победа засчитывается сопернику.</p>
   </div>
   <button class="btn primary wide" type="button" data-act="help-close">Понятно</button>
 </dialog>
