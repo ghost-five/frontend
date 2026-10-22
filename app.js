@@ -19,14 +19,14 @@
     { id: 'circle', name: 'Круг' }, { id: 'ring', name: 'Кольцо' }, { id: 'cross', name: 'Крест' },
     { id: 'square', name: 'Квадрат' }, { id: 'diamond', name: 'Ромб' }, { id: 'star', name: 'Звезда' }
   ];
-  const CFG_KEYS = ['size', 'secret', 'wallTtl', 'mem', 'anchor', 'shots', 'capture', 'timer'];
+  const CFG_KEYS = ['size', 'win', 'secret', 'wallTtl', 'mem', 'anchor', 'shots', 'capture', 'timer'];
   const NICK_RE = /^[A-Za-zА-Яа-яЁё0-9_.-]{3,20}$/;
   const CODE_RE = /^[A-Z0-9]{4,8}$/;
 
   // ---------- Settings (per browser) ----------
   const S = {
     opp: 'bot', theme: 'auto',
-    size: 13, secret: true, wallTtl: 5, mem: 8, anchor: true, shots: 1, capture: false, timer: 0,
+    size: 13, win: 4, secret: true, wallTtl: 5, mem: 8, anchor: true, shots: 1, capture: false, timer: 0,
     look: { 1: { color: 'cobalt', shape: 'circle' }, 2: { color: 'coral', shape: 'diamond' } }
   };
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
@@ -160,8 +160,9 @@
   function resultText(w, reason) {
     if (!w) return reason === 'both' ? 'Ничья: победа у обоих в одном раунде.' : 'Ничья: поле заполнено.';
     const who = names()[w];
-    if (who === 'Вы') return reason === 'caps' ? 'Победа! Вы захватили 5 пар.' : 'Победа! Вы собрали пятёрку.';
-    return who + (reason === 'caps' ? ' захватывает 5 пар.' : ' собирает пятёрку.');
+    const row = E.rowLen(curCfg()) === 4 ? 'четвёрку' : 'пятёрку';
+    if (who === 'Вы') return reason === 'caps' ? 'Победа! Вы захватили 5 пар.' : 'Победа! Вы собрали ' + row + '.';
+    return who + (reason === 'caps' ? ' захватывает 5 пар.' : ' собирает ' + row + '.');
   }
   function evText(e) {
     const N = (p) => capWord(colorOf(p).nom), G = (p) => colorOf(p).gen;
@@ -173,6 +174,7 @@
       case 'hit': return e.guessed ? N(e.p) + ' угадали ход и сбили новую фишку!' : N(e.p) + ' сбили фишку ' + G(3 - e.p) + '.';
       case 'miss': return N(e.p) + ' выстрелили мимо.';
       case 'anchorMiss': return N(e.p) + ' попали в якорь: его не сбить.';
+      case 'unanchor': return N(e.p) + ' забрали якорь обратно.';
       case 'pass': return N(e.p) + ' не успели сходить.';
       case 'cap': return N(e.p) + ' захватили ' + (e.n === 1 ? 'пару' : 'пары: ' + e.n) + ' (' + e.total + '/5).';
       case 'vanish': return 'Исчезла старая фишка ' + G(e.p) + '.';
@@ -183,7 +185,7 @@
   }
   function cfgSummary(cfg) {
     if (!cfg) return '';
-    const parts = [cfg.size + '×' + cfg.size];
+    const parts = [cfg.size + '×' + cfg.size, E.rowLen(cfg) + ' в ряд'];
     if (cfg.secret) parts.push('тайный ход');
     if (cfg.mem) parts.push('память ' + cfg.mem);
     if (E.anchorOn(cfg)) parts.push('якорь');
@@ -246,12 +248,15 @@
     render();
   }
   function setAction(a) {
-    const st = curSt(), p = picker();
+    const st = curSt(), cfg = curCfg(), p = picker();
     if (!st || !p || !isHuman(p) || busy) return;
-    if (a === 'shot' && !E.canShoot(st, curCfg(), p)) return;
+    if (a === 'shot' && !E.canShoot(st, cfg, p)) return;
+    if (a === 'unanchor' && !E.canUnanchor(st, cfg, p)) return;
     ui.action = a;
-    if (a === 'shot') ui.useAnchor = false;
-    if (ui.sel !== null && !E.validTarget(st, curCfg(), p, ui.sel, a)) ui.sel = null;
+    if (a !== 'place') ui.useAnchor = false;
+    if (ui.sel !== null && !E.validTarget(st, cfg, p, ui.sel, a)) ui.sel = null;
+    // Забирать нечего, кроме собственного якоря: клетка выбирается сама.
+    if (a === 'unanchor') ui.sel = E.anchorOf(st, p);
     render();
   }
   function confirmMove() {
@@ -973,7 +978,10 @@
   }
 
   function statusText(st, cfg) {
-    const pickHint = 'Клетка выбрана. Нажмите «' + (ui.action === 'shot' ? 'Выстрелить' : 'Сделать ход') + '» или выберите другую.';
+    const actWord = ui.action === 'shot' ? 'Выстрелить' : ui.action === 'unanchor' ? 'Забрать якорь' : 'Сделать ход';
+    const pickHint = ui.action === 'unanchor'
+      ? 'Якорь выбран. Нажмите «Забрать якорь»: это будет ваш ход.'
+      : 'Клетка выбрана. Нажмите «' + actWord + '» или выберите другую.';
     const shotHint = cfg.secret ? 'Выберите цель: фишку соперника или пустую клетку, куда он может сходить.' : 'Выберите фишку соперника.';
     if (st.over) return resultText(st.winner, st.winReason);
     if (online()) {
@@ -1208,6 +1216,15 @@
     $('meNickTop').textContent = O.profile ? O.profile.nickname : O.guest ? 'Гость' : '';
   }
 
+  function openHelp() {
+    const n = E.rowLen(curCfg() || S);
+    $('helpGoal').textContent = n === 4 ? 'четыре своих фишки подряд' : 'пять своих фишек подряд';
+    const d = $('helpBox');
+    if (d.open) return;
+    if (d.showModal) d.showModal(); else d.setAttribute('open', '');
+  }
+  $('helpBox').addEventListener('click', (e) => { if (e.target === $('helpBox')) $('helpBox').close(); });
+
   // Правила партии нужны и на экране игры, и в лобби: карточка одна и переезжает.
   function placeRules(route) {
     const card = $('rulesCard');
@@ -1217,7 +1234,8 @@
     // Фишки настраиваются и в разделе «Вид», и прямо по ходу партии.
     const looks = $('looksCard');
     const lslot = $(route === 'look' ? 'looksSlotLook' : 'looksSlotPlay');
-    if (looks.parentElement !== lslot) lslot.appendChild(looks);
+    // Рядом с полем карточка не должна мозолить глаза: там она свёрнута.
+    if (looks.parentElement !== lslot) { lslot.appendChild(looks); looks.open = route === 'look'; }
   }
 
   function render() {
@@ -1285,6 +1303,7 @@
     stEl.textContent = statusText(st, cfg);
 
     const showShot = cfg.shots > 0, showAnchor = E.anchorOn(cfg);
+    const onBoard = showAnchor && E.anchorOf(st, p) >= 0;
     $('tools').hidden = !(human && !st.over && (showShot || showAnchor));
     if (human) {
       $('actPlace').hidden = !showShot;
@@ -1293,9 +1312,17 @@
       $('actShot').setAttribute('aria-pressed', ui.action === 'shot' ? 'true' : 'false');
       $('actShot').textContent = 'Выстрел · ' + st.shots[p];
       $('actShot').disabled = !E.canShoot(st, cfg, p);
-      $('anchorBtn').hidden = !showAnchor;
+      const take = $('actTake');
+      take.hidden = !onBoard;
+      if (onBoard) {
+        const left = E.ANCHOR_HOLD - E.anchorAge(st, cfg, p);
+        take.textContent = left > 0 ? 'Забрать якорь · через ' + left : 'Забрать якорь';
+        take.disabled = left > 0;
+        take.setAttribute('aria-pressed', ui.action === 'unanchor' ? 'true' : 'false');
+      }
+      $('anchorBtn').hidden = !showAnchor || onBoard;
       $('anchorBtn').textContent = 'Якорь · ' + st.anchorLeft[p];
-      $('anchorBtn').disabled = st.anchorLeft[p] === 0 || ui.action === 'shot';
+      $('anchorBtn').disabled = st.anchorLeft[p] === 0 || ui.action !== 'place';
       $('anchorBtn').setAttribute('aria-pressed', ui.useAnchor ? 'true' : 'false');
     }
 
@@ -1305,7 +1332,7 @@
       cbtn.textContent = 'Ещё партия';
       cbtn.disabled = isOnline && !mySeat();
     } else {
-      cbtn.textContent = ui.action === 'shot' ? 'Выстрелить' : 'Сделать ход';
+      cbtn.textContent = ui.action === 'shot' ? 'Выстрелить' : ui.action === 'unanchor' ? 'Забрать якорь' : 'Сделать ход';
       cbtn.disabled = !(ui.sel !== null && human);
     }
     cbtn.hidden = waiting;
@@ -1463,6 +1490,8 @@
     const act = t.dataset.act;
     if (act === 'copy') copyLink();
     else if (act === 'share') shareLink();
+    else if (act === 'help') openHelp();
+    else if (act === 'help-close') $('helpBox').close();
     else if (act === 'reveal' && Lc.phase === 'handoff') { Lc.phase = 'pick2'; render(); }
     else if (act === 'redo' && Lc.phase === 'handoff') { Lc.phase = 'pick1'; Lc.pending1 = null; resetUi(); render(); }
     else if (act === 'guest') { O.guest = true; go('play'); }
@@ -1526,9 +1555,10 @@
   $('newGame').addEventListener('click', () => { if (!online()) newLocal(); });
   $('actPlace').addEventListener('click', () => setAction('place'));
   $('actShot').addEventListener('click', () => setAction(ui.action === 'shot' ? 'place' : 'shot'));
+  $('actTake').addEventListener('click', () => setAction(ui.action === 'unanchor' ? 'place' : 'unanchor'));
   $('anchorBtn').addEventListener('click', () => {
     const st = curSt(), p = picker();
-    if (!st || !p || !isHuman(p) || st.anchorLeft[p] === 0 || ui.action === 'shot') return;
+    if (!st || !p || !isHuman(p) || st.anchorLeft[p] === 0 || ui.action !== 'place') return;
     ui.useAnchor = !ui.useAnchor;
     render();
   });

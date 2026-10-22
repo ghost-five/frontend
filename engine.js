@@ -2,15 +2,24 @@
 // Чистые функции над простым JSON-состоянием, одинаковые у обоих игроков.
 (function (root) {
   const DIRS = [[0, 1], [1, 0], [1, 1], [1, -1]];
-  const W = [0, 2, 30, 500, 9000, 1000000];
+  const WIN = 1000000;
+  // Веса для «сколько своих фишек в окне»: отдельные для ряда из пяти и из четырёх.
+  const W5 = [0, 2, 30, 500, 9000, WIN];
+  const W4 = [0, 3, 60, 2000, WIN];
+  const weights = (win) => (win === 4 ? W4 : W5);
+  const rowLen = (cfg) => (cfg.win === 4 ? 4 : 5);
+  // Сколько ходов якорь стоит, прежде чем его можно забрать обратно.
+  const ANCHOR_HOLD = 5;
 
   const E = {
+    ANCHOR_HOLD,
+    rowLen,
     anchorOn: (cfg) => !!cfg.anchor && cfg.mem > 0,
 
     make(cfg, starter, gameNo) {
       const n = cfg.size;
       const st = {
-        n, cells: new Array(n * n).fill(0), q: { 1: [], 2: [] }, anchors: [],
+        n, cells: new Array(n * n).fill(0), q: { 1: [], 2: [] }, anchors: [], anchorAt: { 1: 0, 2: 0 },
         anchorLeft: { 1: 1, 2: 1 }, shots: { 1: cfg.shots, 2: cfg.shots }, caps: { 1: 0, 2: 0 },
         walls: [], round: 1, moves: 0, turn: starter, starter, gameNo,
         over: false, winner: 0, winLine: [], winReason: '', last: [], log: [],
@@ -27,10 +36,39 @@
 
     resetFx(st) { st.fx = { fresh: [], gone: [], burn: -1 }; },
 
+    // Общий счётчик ходов партии: в тайном режиме раунд, иначе номер полухода.
+    clock: (st, cfg) => (cfg.secret ? st.round : st.moves),
+
     place(st, cfg, p, i, anchor) {
       st.cells[i] = p;
-      if (anchor && E.anchorOn(cfg) && st.anchorLeft[p] > 0) { st.anchors.push(i); st.anchorLeft[p]--; }
-      else st.q[p].push(i);
+      if (anchor && E.anchorOn(cfg) && st.anchorLeft[p] > 0) {
+        st.anchors.push(i);
+        st.anchorLeft[p]--;
+        if (!st.anchorAt) st.anchorAt = { 1: 0, 2: 0 };
+        st.anchorAt[p] = E.clock(st, cfg);
+      } else st.q[p].push(i);
+    },
+
+    anchorOf(st, p) {
+      for (const i of st.anchors) if (st.cells[i] === p) return i;
+      return -1;
+    },
+    anchorAge(st, cfg, p) {
+      const at = (st.anchorAt && st.anchorAt[p]) || 0;
+      return E.clock(st, cfg) - at;
+    },
+    // Якорь можно забрать обратно, когда он простоял своё; он снова идёт в запас.
+    canUnanchor(st, cfg, p) {
+      if (!E.anchorOn(cfg) || st.over) return false;
+      return E.anchorOf(st, p) >= 0 && E.anchorAge(st, cfg, p) >= ANCHOR_HOLD;
+    },
+    takeAnchor(st, cfg, p, ev) {
+      const i = E.anchorOf(st, p);
+      if (i < 0 || !E.canUnanchor(st, cfg, p)) return false;
+      E.remove(st, i);
+      st.anchorLeft[p]++;
+      ev.push({ k: 'unanchor', p });
+      return true;
     },
 
     remove(st, i) {
@@ -88,8 +126,8 @@
       return cooled;
     },
 
-    findWin(st, p) {
-      const n = st.n, c = st.cells;
+    findWin(st, cfg, p) {
+      const n = st.n, c = st.cells, need = rowLen(cfg);
       for (let r = 0; r < n; r++) for (let col = 0; col < n; col++) {
         if (c[r * n + col] !== p) continue;
         for (const [dr, dc] of DIRS) {
@@ -98,14 +136,14 @@
           const line = [];
           let rr = r, cc = col;
           while (rr >= 0 && rr < n && cc >= 0 && cc < n && c[rr * n + cc] === p) { line.push(rr * n + cc); rr += dr; cc += dc; }
-          if (line.length >= 5) return line;
+          if (line.length >= need) return line;
         }
       }
       return null;
     },
 
     checkWin(st, cfg, p) {
-      const line = E.findWin(st, p);
+      const line = E.findWin(st, cfg, p);
       if (line) return { line, reason: 'five' };
       if (cfg.capture && st.caps[p] >= 5) return { line: [], reason: 'caps' };
       return null;
@@ -122,6 +160,7 @@
       if (kind === 'place') return v === 0;
       // Якорь выстрелом не берётся, целиться в него незачем.
       if (kind === 'shot') return (v === 3 - p && !st.anchors.includes(i)) || (!!cfg.secret && v === 0);
+      if (kind === 'unanchor') return v === p && st.anchors.includes(i) && E.canUnanchor(st, cfg, p);
       return false;
     },
 
@@ -164,7 +203,10 @@
           } else ev.push({ k: 'miss', p });
         }
         for (const [p, m] of [[1, m1], [2, m2]]) {
-          if (m.kind !== 'place' && m.kind !== 'shot') ev.push({ k: 'pass', p });
+          if (m.kind === 'unanchor') E.takeAnchor(st, cfg, p, ev);
+        }
+        for (const [p, m] of [[1, m1], [2, m2]]) {
+          if (m.kind !== 'place' && m.kind !== 'shot' && m.kind !== 'unanchor') ev.push({ k: 'pass', p });
         }
         if (!ev.length) ev.push({ k: 'open' });
       }
@@ -201,6 +243,9 @@
           st.last = [];
           ev.push({ k: 'hit', p, guessed: false });
         }
+      } else if (m.kind === 'unanchor') {
+        st.last = [];
+        E.takeAnchor(st, cfg, p, ev);
       } else {
         // Ход пропущен: кончилось время.
         ev.push({ k: 'pass', p });
@@ -214,13 +259,13 @@
   };
 
   // ---------- Бот ----------
-  function lineScore(b, idx, p, n) {
-    const r = (idx / n) | 0, c = idx % n;
+  function lineScore(b, idx, p, n, win) {
+    const r = (idx / n) | 0, c = idx % n, W = weights(win);
     let total = 0;
     for (const [dr, dc] of DIRS) {
-      for (let off = -4; off <= 0; off++) {
+      for (let off = 1 - win; off <= 0; off++) {
         let cnt = 0, ok = true;
-        for (let k = 0; k < 5; k++) {
+        for (let k = 0; k < win; k++) {
           const rr = r + (off + k) * dr, cc = c + (off + k) * dc;
           if (rr < 0 || rr >= n || cc < 0 || cc >= n) { ok = false; break; }
           const j = rr * n + cc;
@@ -234,14 +279,15 @@
     return total;
   }
 
-  function winCellCount(st, b, p) {
+  function winCellCount(st, cfg, b, p) {
     let k = 0;
-    for (let i = 0; i < st.n * st.n; i++) if (st.cells[i] === 0 && b[i] === 0 && lineScore(b, i, p, st.n) >= 1000000) k++;
+    const win = rowLen(cfg);
+    for (let i = 0; i < st.n * st.n; i++) if (st.cells[i] === 0 && b[i] === 0 && lineScore(b, i, p, st.n, win) >= WIN) k++;
     return k;
   }
 
   function botPick(st, cfg, me, vb) {
-    const n = st.n, c0 = st.cells, opp = 3 - me, m = n >> 1;
+    const n = st.n, c0 = st.cells, opp = 3 - me, m = n >> 1, win = rowLen(cfg);
     if (!c0.some((v) => v === 1 || v === 2)) {
       const opts = [];
       for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
@@ -262,13 +308,13 @@
         if (v === 1 || v === 2) { near = true; break; }
       }
       if (!near) continue;
-      let att = lineScore(vb, i, me, n);
-      let def = lineScore(vb, i, opp, n);
+      let att = lineScore(vb, i, me, n, win);
+      let def = lineScore(vb, i, opp, n, win);
       if (cfg.capture) {
         const ca = E.captures(vb, n, i, me).length / 2;
         const cd = E.captures(vb, n, i, opp).length / 2;
-        att += ca * 1500 + (ca && st.caps[me] + ca >= 5 ? 1000000 : 0);
-        def += cd * 1100 + (cd && st.caps[opp] + cd >= 5 ? 1000000 : 0);
+        att += ca * 1500 + (ca && st.caps[me] + ca >= 5 ? WIN : 0);
+        def += cd * 1100 + (cd && st.caps[opp] + cd >= 5 ? WIN : 0);
       }
       const s = att + def * 0.9 - (Math.abs(r - m) + Math.abs(c - m)) * 0.3 + Math.random() * 3;
       list.push({ i, s, att });
@@ -280,7 +326,7 @@
     }
     list.sort((a, b) => b.s - a.s);
     const top = list[0];
-    if (!cfg.secret || top.s >= 500000) return top;
+    if (!cfg.secret || top.s >= WIN / 2) return top;
     const pool = list.filter((x) => x.s >= top.s * 0.7).slice(0, 5);
     const sum = pool.reduce((a, x) => a + x.s, 0);
     let roll = Math.random() * sum;
@@ -293,15 +339,15 @@
     const vb = st.cells.slice();
     if (cfg.mem) for (const p of [1, 2]) if (st.q[p].length >= cfg.mem) vb[st.q[p][0]] = 0;
     const pick = botPick(st, cfg, me, vb);
-    if (pick.att >= 1000000) return { i: pick.i, kind: 'place', anchor: false };
+    if (pick.att >= WIN) return { i: pick.i, kind: 'place', anchor: false };
     if (E.canShoot(st, cfg, me)) {
-      const threats = winCellCount(st, vb, opp);
+      const threats = winCellCount(st, cfg, vb, opp);
       if (threats >= 2) {
         let best = -1, bestCount = threats;
         for (let s = 0; s < n * n; s++) {
           if (st.cells[s] !== opp || vb[s] !== opp || st.anchors.includes(s)) continue;
           const t = vb.slice(); t[s] = 0;
-          const cnt = winCellCount(st, t, opp);
+          const cnt = winCellCount(st, cfg, t, opp);
           if (cnt < bestCount) { bestCount = cnt; best = s; }
         }
         if (best >= 0) return { i: best, kind: 'shot' };

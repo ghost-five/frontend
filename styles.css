@@ -405,6 +405,29 @@ input:focus { outline: 0; border-color: var(--brand); background: var(--surface)
 .log b { font-family: var(--mono); font-weight: 500; font-size: 11px; color: var(--muted); min-width: 30px; font-variant-numeric: tabular-nums; flex: none; }
 .log li.burn span { color: color-mix(in srgb, var(--burn) 70%, var(--ink)); }
 .log li.win span { font-weight: 600; }
+/* Свёрнутая карточка: заголовок кликабелен, стрелка показывает состояние */
+.fold > summary { cursor: pointer; list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::after {
+  content: ""; width: 7px; height: 7px; flex: none; margin-right: 3px;
+  border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted);
+  transform: rotate(45deg) translate(-2px, -2px); transition: transform .15s;
+}
+.fold[open] > summary::after { transform: rotate(225deg) translate(-2px, -2px); }
+.fold > summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; border-radius: 4px; }
+.fold[open] > summary { margin-bottom: 14px; }
+
+/* Окно «Как играть» */
+.sheet {
+  border: 1px solid var(--rule); border-radius: var(--r-lg); background: var(--surface); color: var(--ink);
+  padding: 24px; max-width: 540px; width: calc(100% - 32px);
+  box-shadow: var(--shadow-lg);
+}
+.sheet::backdrop { background: rgb(6 9 14 / .6); backdrop-filter: blur(4px); }
+.sheet h2 { font-family: var(--display); font-weight: 500; font-size: 21px; margin-bottom: 16px; }
+.sheet .rules { margin-bottom: 20px; }
+.sheet .rules p { font-size: 14px; }
+
 .rules { display: flex; flex-direction: column; gap: 10px; }
 .rules p { margin: 0; font-size: 13.5px; color: var(--muted); }
 .rules strong { color: var(--ink); font-weight: 600; }

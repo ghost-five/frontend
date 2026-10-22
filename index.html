@@ -27,7 +27,11 @@
       <button class="tab" type="button" data-nav="look">Вид</button>
       <button class="tab" type="button" data-nav="profile">Профиль</button>
     </nav>
-    <div class="who"><b id="meNickTop"></b><button class="linkbtn" type="button" data-act="signout">Выйти</button></div>
+    <div class="who">
+      <button class="chip" type="button" data-act="help">Как играть</button>
+      <b id="meNickTop"></b>
+      <button class="linkbtn" type="button" data-act="signout">Выйти</button>
+    </div>
   </div>
 </header>
 
@@ -122,6 +126,7 @@
           <span class="label">Действие</span>
           <button class="chip" id="actPlace" type="button">Поставить фишку</button>
           <button class="chip" id="actShot" type="button">Выстрел</button>
+          <button class="chip" id="actTake" type="button">Забрать якорь</button>
           <button class="chip" id="anchorBtn" type="button">Якорь</button>
         </div>
         <div class="actions" id="actions">
@@ -154,17 +159,6 @@
 
         <div id="looksSlotPlay"></div>
         <div id="rulesSlotPlay"></div>
-
-        <section class="card">
-          <h3 class="card-title">Как играть</h3>
-          <div class="rules">
-            <p><strong>Цель:</strong> 5 своих фишек подряд по горизонтали, вертикали или диагонали.</p>
-            <p><strong>Ход:</strong> нажмите на клетку, чтобы выбрать её, и подтвердите кнопкой «Сделать ход». Пока соперник выбирает, ход можно отменить и выбрать заново.</p>
-            <p><strong>Цифра в углу клетки</strong> показывает, через сколько ваших ходов исчезнет фишка или через сколько раундов остынет стена. Фишка в пунктирной рамке исчезнет следующим ходом.</p>
-            <p><strong>Якорь</strong> отмечен знаком ∞ и сплошной рамкой: он не исчезает от времени и его нельзя сбить выстрелом.</p>
-            <p><strong>По сети</strong> тайные ходы шифруются: соперник видит только, что вы сходили, а сам ход открывается, когда сходили оба.</p>
-          </div>
-        </section>
       </aside>
     </div>
   </section>
@@ -266,11 +260,11 @@
     </div>
   </section>
 
-  <!-- Фишки: карточка переезжает в раздел «Вид» или в бок экрана игры -->
-  <section class="card" id="looksCard">
-    <h3 class="card-title">Фишки</h3>
+  <!-- Фишки: карточка переезжает в раздел «Вид» или в бок экрана игры, где свёрнута -->
+  <details class="card fold" id="looksCard" open>
+    <summary class="card-title">Фишки</summary>
     <div id="looks"></div>
-  </section>
+  </details>
 
   <!-- Правила партии: переезжают на экран игры или в лобби -->
   <section class="card rules-card" id="rulesCard">
@@ -278,6 +272,10 @@
     <div class="setting" id="set-size"><div class="row"><span>Поле</span>
       <div class="seg" data-key="size" data-type="num"><button type="button" data-v="11">11</button><button type="button" data-v="13">13</button><button type="button" data-v="15">15</button></div>
     </div></div>
+    <div class="setting" id="set-win"><div class="row"><span>Ряд для победы</span>
+      <div class="seg" data-key="win" data-type="num"><button type="button" data-v="4">4 в ряд</button><button type="button" data-v="5">5 в ряд</button></div></div>
+      <p class="hint">Четвёрка собирается заметно быстрее пятёрки.</p>
+    </div>
     <div class="setting" id="set-secret"><div class="row"><span>Тайный ход</span>
       <div class="seg" data-key="secret" data-type="bool"><button type="button" data-v="1">Вкл</button><button type="button" data-v="0">Выкл</button></div></div>
       <p class="hint">Оба выбирают ход одновременно. Выбрали одну клетку: она сгорает и становится стеной.</p>
@@ -310,6 +308,19 @@
   </section>
 
 </main>
+
+<dialog class="sheet" id="helpBox">
+  <h2>Как играть</h2>
+  <div class="rules">
+    <p><strong>Цель:</strong> <span id="helpGoal">собрать ряд из своих фишек</span> по горизонтали, вертикали или диагонали.</p>
+    <p><strong>Ход:</strong> нажмите на клетку, чтобы выбрать её, и подтвердите кнопкой «Сделать ход». Повторное нажатие снимает выбор. Пока соперник выбирает, отправленный ход можно отменить.</p>
+    <p><strong>Цифра в углу клетки</strong> показывает, через сколько ваших ходов исчезнет фишка или через сколько раундов остынет стена. Фишка в пунктирной рамке исчезнет следующим ходом.</p>
+    <p><strong>Якорь</strong> отмечен знаком ∞ и сплошной рамкой: он не исчезает от времени и его нельзя сбить выстрелом. Простояв пять ходов, он возвращается в запас кнопкой «Забрать якорь» — это ваш ход.</p>
+    <p><strong>Выстрел</strong> сбивает фишку соперника вместо хода. С тайным ходом можно стрелять и в пустую клетку, угадывая, куда он пойдёт.</p>
+    <p><strong>По сети</strong> тайные ходы шифруются: соперник видит только, что вы сходили, а сам ход открывается, когда сходили оба.</p>
+  </div>
+  <button class="btn primary wide" type="button" data-act="help-close">Понятно</button>
+</dialog>
 
 <script src="config.js"></script>
 <script src="vendor/supabase.js"></script>
