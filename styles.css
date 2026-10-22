@@ -558,3 +558,20 @@ input:focus { outline: 0; border-color: var(--brand); background: var(--surface)
 .log li { flex-wrap: wrap; }
 .log li > span { display: flex; flex-wrap: wrap; gap: 4px; }
 .log .ev { display: inline; }
+
+/* ---------- Куда идёт ход ---------- */
+/* Клетки, доступные для якоря или его сдвига. */
+.cell.target::after {
+  content: ""; position: absolute; inset: 40%; border-radius: 50%; pointer-events: none;
+  background: var(--ink); opacity: .22; animation: breathe 1.4s ease-in-out infinite;
+}
+.cell.from { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--ink) 45%, transparent); opacity: .7; }
+.cell.from .stone { animation: breathe 1.4s ease-in-out infinite; }
+/* Отправленный ход: виден только вам, пока соперник выбирает. */
+.cell.pending::before {
+  content: ""; position: absolute; inset: 1px; border-radius: 4px; pointer-events: none;
+  border: 1.5px dashed var(--brand);
+}
+.cell.pending { background: color-mix(in srgb, var(--brand) 10%, var(--cell)); }
+.badge.mark { font-size: clamp(9px, 1.5vw, 13px); color: var(--ink); opacity: .85; }
+.aim.soft { border-color: var(--brand); opacity: .75; }

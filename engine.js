@@ -159,6 +159,7 @@
       if (typeof i !== 'number' || i < 0 || i >= st.cells.length) return false;
       const v = st.cells[i];
       if (kind === 'place') return v === 0;
+      if (kind === 'anchor') return E.canAnchor(st, cfg, p) && (v === 0 || (v === p && !st.anchors.includes(i)));
       // Якорь выстрелом не берётся, целиться в него незачем.
       if (kind === 'shot') return (v === 3 - p && !st.anchors.includes(i)) || (!!cfg.secret && v === 0);
       if (kind === 'unanchor') return v === p && st.anchors.includes(i) && E.canUnanchor(st, cfg, p);
@@ -187,6 +188,21 @@
       ev.push({ k: 'anchorMove', p, from, i: to, wall });
       return true;
     },
+    // Якорем можно сделать и фишку, которая уже стоит на поле.
+    setAnchor(st, cfg, p, i, ev) {
+      if (!E.anchorOn(cfg) || st.anchorLeft[p] <= 0) return false;
+      if (st.cells[i] !== p || st.anchors.includes(i)) return false;
+      st.q[p] = st.q[p].filter((x) => x !== i);
+      st.anchors.push(i);
+      st.anchorLeft[p]--;
+      if (!st.anchorAt) st.anchorAt = { 1: 0, 2: 0 };
+      st.anchorAt[p] = E.clock(st, cfg);
+      st.fx.fresh.push(i);
+      ev.push({ k: 'anchorSet', p, i });
+      return true;
+    },
+    canAnchor: (st, cfg, p) => E.anchorOn(cfg) && st.anchorLeft[p] > 0,
+
     canMoveAnchor(st, cfg, p, to) {
       const from = E.anchorOf(st, p);
       if (from < 0) return false;
@@ -200,17 +216,20 @@
       E.resetFx(st);
       st.scar = [];
       const tag = 'Р' + st.round, ev = [], placed = [];
+      // Ход «якорь» на пустую клетку — это тоже постановка фишки.
+      const putting = (m) => (m.kind === 'place' || m.kind === 'anchor') && st.cells[m.i] === 0;
       let kind = '', newWall = -1;
-      if (m1.kind === 'place' && m2.kind === 'place' && m1.i === m2.i) {
+      if (putting(m1) && putting(m2) && m1.i === m2.i) {
         st.cells[m1.i] = 3;
         st.walls.push([m1.i, cfg.wallTtl || 0]);
         newWall = m1.i; st.fx.burn = m1.i; st.last = [];
         ev.push({ k: 'burn', i: m1.i }); kind = 'burn';
       } else {
         for (const [p, m] of [[1, m1], [2, m2]]) {
-          if (m.kind !== 'place' || st.cells[m.i] !== 0) continue;
+          if (m.kind === 'anchor' && st.cells[m.i] === p) { E.setAnchor(st, cfg, p, m.i, ev); continue; }
+          if (!putting(m)) continue;
           const before = st.anchors.length;
-          E.place(st, cfg, p, m.i, m.anchor);
+          E.place(st, cfg, p, m.i, m.kind === 'anchor' || m.anchor);
           placed.push([p, m.i]);
           st.fx.fresh.push(m.i);
           ev.push({ k: st.anchors.length > before ? 'anchor' : 'place', p, i: m.i });
@@ -259,9 +278,12 @@
       st.scar = [];
       st.moves++;
       const tag = 'Х' + st.moves, ev = [];
-      if (m.kind === 'place') {
+      if (m.kind === 'anchor' && st.cells[m.i] === p) {
+        st.last = [m.i];
+        E.setAnchor(st, cfg, p, m.i, ev);
+      } else if (m.kind === 'place' || m.kind === 'anchor') {
         const before = st.anchors.length;
-        E.place(st, cfg, p, m.i, m.anchor);
+        E.place(st, cfg, p, m.i, m.kind === 'anchor' || m.anchor);
         ev.push({ k: st.anchors.length > before ? 'anchor' : 'place', p, i: m.i });
         st.fx.fresh.push(m.i); st.last = [m.i];
         E.doCaptures(st, cfg, [[p, m.i]], ev);

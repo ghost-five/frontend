@@ -19,6 +19,7 @@
     { id: 'circle', name: 'Круг' }, { id: 'ring', name: 'Кольцо' }, { id: 'cross', name: 'Крест' },
     { id: 'square', name: 'Квадрат' }, { id: 'diamond', name: 'Ромб' }, { id: 'star', name: 'Звезда' }
   ];
+  const ACT_WORD = { place: 'Сделать ход', shot: 'Выстрелить', anchor: 'Поставить якорь', moveAnchor: 'Сдвинуть якорь', unanchor: 'Забрать якорь' };
   const CFG_KEYS = ['size', 'win', 'secret', 'wallTtl', 'mem', 'anchor', 'shots', 'capture', 'timer'];
   const NICK_RE = /^[A-Za-zА-Яа-яЁё0-9_.-]{3,20}$/;
   const CODE_RE = /^[A-Z0-9]{4,8}$/;
@@ -70,7 +71,7 @@
   const R = { route: 'auth' };
   const online = () => R.route === 'game';
   const Lc = { st: null, cfg: null, phase: 'pick', pending1: null, score: { 1: 0, 2: 0, d: 0 }, starter: 2 };
-  const ui = { sel: null, action: 'place', useAnchor: false };
+  const ui = { sel: null, action: 'place' };
   let busy = false;
   const O = {
     // account
@@ -134,7 +135,7 @@
     if (b > 1 && b < 5) return few;
     return many;
   }
-  const resetUi = () => { ui.sel = null; ui.action = 'place'; ui.useAnchor = false; };
+  const resetUi = () => { ui.sel = null; ui.action = 'place'; };
 
   function mySeat() {
     if (!O.game || !O.myId) return 0;
@@ -203,6 +204,7 @@
       case 'burn': return ['Оба выбрали одну клетку', ...at(e.i, ' '), ' — она сгорела.'];
       case 'place': return [nameRef(e.p), ...at(e.i, ': '), '.'];
       case 'anchor': return [nameRef(e.p), ': якорь', ...at(e.i, ' на '), '.'];
+      case 'anchorSet': return [nameRef(e.p), ': фишка', ...at(e.i, ' '), ' стала якорем.'];
       case 'anchorMove': return [nameRef(e.p), ': якорь', ...at(e.from, ' '), ...at(e.i, ' → '), e.wall ? ', стена сломана.' : '.'];
       case 'unanchor': return [nameRef(e.p), ': якорь', ...at(e.i, ' с '), ' убран в запас.'];
       case 'hit': return [nameRef(e.p), e.guessed ? ': ход угадан, фишка' : ': выстрел, фишка', ...at(e.i, ' '), ' сбита.'];
@@ -315,8 +317,8 @@
     if (a === 'shot' && !E.canShoot(st, cfg, p)) return;
     if (a === 'unanchor' && !E.canUnanchor(st, cfg, p)) return;
     if (a === 'moveAnchor' && E.anchorOf(st, p) < 0) return;
+    if (a === 'anchor' && !E.canAnchor(st, cfg, p)) return;
     ui.action = a;
-    if (a !== 'place') ui.useAnchor = false;
     if (ui.sel !== null && !E.validTarget(st, cfg, p, ui.sel, a)) ui.sel = null;
     // Забирать нечего, кроме собственного якоря: клетка выбирается сама.
     if (a === 'unanchor') ui.sel = E.anchorOf(st, p);
@@ -332,7 +334,7 @@
     const p = picker();
     if (!p || !isHuman(p) || ui.sel === null || busy) return;
     const cfg = curCfg();
-    const m = { i: ui.sel, kind: ui.action, anchor: ui.action === 'place' && ui.useAnchor && E.anchorOn(cfg) && st.anchorLeft[p] > 0 };
+    const m = { i: ui.sel, kind: ui.action, anchor: false };
     resetUi();
     if (online()) { if (cfg.secret) commitMove(m); else onlineSeq(m); return; }
     if (cfg.secret) {
@@ -1049,6 +1051,14 @@
     return 'Строка ' + r + ', столбец ' + c + ': ' + what;
   }
 
+  // Свой ход, который уже отправлен и ждёт соперника: соперник его не видит.
+  function pendingMove(st, cfg) {
+    if (!online() || !cfg.secret || st.over || !hasPlain(st)) return null;
+    const me = mySeat();
+    if (!me || !seatDone(me)) return null;
+    return O.plain;
+  }
+
   function renderBoard(st, cfg, p, human) {
     ensureBoard(st.n);
     const n = st.n, L = cfg.mem;
@@ -1065,10 +1075,20 @@
     const fresh = new Set(fx.fresh);
     const sh = (pl) => ' sh-' + lookOf(pl).shape;
     boardEl.classList.toggle('live', human);
+    // Отправленный, но ещё не раскрытый ход рисуем призраком: видно, куда вы сходили.
+    const pend = pendingMove(st, cfg);
+    const me = mySeat() || p;
+    const aim = (kind) => kind === 'shot' || kind === 'unanchor';
+    const sign = (kind) => kind === 'anchor' || kind === 'moveAnchor';
+    const fromCell = human && ui.action === 'moveAnchor' && p ? E.anchorOf(st, p) : -1;
     for (let i = 0; i < n * n; i++) {
       const v = st.cells[i];
       let cls = 'cell', inner = '';
-      if (human && E.validTarget(st, cfg, p, i, ui.action)) cls += ' ok';
+      const okHere = human && E.validTarget(st, cfg, p, i, ui.action);
+      if (okHere) cls += ' ok';
+      // Куда можно поставить или двинуть якорь — помечаем, иначе выбор неочевиден.
+      if (okHere && (ui.action === 'moveAnchor' || (ui.action === 'anchor' && v === p))) cls += ' target';
+      if (i === fromCell) cls += ' from';
       if (v === 3) {
         cls += ' wall' + (fx.burn === i ? ' burn' : '');
         const ttl = walls.get(i);
@@ -1093,12 +1113,19 @@
         if (sc) cls += ' scar s' + sc;
         const van = fx.gone.find((x) => x[0] === i);
         if (van) inner = '<span class="stone p' + van[1] + sh(van[1]) + ' vanish"></span>';
-        else if (ui.sel === i && p && ui.action === 'place') {
-          cls += ' selected';
-          inner = '<span class="stone p' + p + sh(p) + ' ghost"></span>' + (ui.useAnchor ? '<span class="badge">∞</span>' : '');
-        }
       }
-      if (ui.sel === i && ui.action === 'shot') inner += '<span class="aim"></span>';
+      if (human && ui.sel === i && p) {
+        cls += ' selected';
+        if (aim(ui.action)) inner += '<span class="aim"></span>';
+        else if (v === 0) inner += '<span class="stone p' + p + sh(p) + ' ghost"></span>';
+        if (sign(ui.action)) inner += '<span class="badge mark">∞</span>';
+      }
+      if (pend && pend.i === i) {
+        cls += ' pending';
+        if (aim(pend.kind)) inner += '<span class="aim soft"></span>';
+        else if (v === 0) inner += '<span class="stone p' + me + sh(me) + ' ghost"></span>';
+        if (sign(pend.kind)) inner += '<span class="badge mark">∞</span>';
+      }
       const key = cls + '|' + inner;
       if (cellKeys[i] !== key) {
         const el = cellEls[i];
@@ -1110,11 +1137,12 @@
   }
 
   function statusText(st, cfg) {
-    const actWord = ui.action === 'shot' ? 'Выстрелить' : ui.action === 'unanchor' ? 'Забрать якорь' : ui.action === 'moveAnchor' ? 'Сдвинуть якорь' : 'Сделать ход';
+    const actWord = ACT_WORD[ui.action] || 'Сделать ход';
     const pickHint = ui.action === 'unanchor'
       ? 'Якорь выбран. Нажмите «Забрать якорь»: это будет ваш ход.'
       : 'Клетка выбрана. Нажмите «' + actWord + '» или выберите другую.';
     const moveHint = 'Выберите соседнюю клетку: пустую или со стеной — якорь её проломит.';
+    const anchorHint = 'Выберите пустую клетку или свою фишку на поле — она станет якорем.';
     const shotHint = cfg.secret ? 'Выберите цель: фишку соперника или пустую клетку, куда он может сходить.' : 'Выберите фишку соперника.';
     if (st.over) return resultText(st.winner, st.winReason);
     if (online()) {
@@ -1128,10 +1156,14 @@
       if (O.committing) return 'Отправляем ход…';
       if (cfg.secret) {
         const theirs = moveCurrent(O.moves[3 - me], st);
-        if (seatDone(me)) return theirs ? 'Открываем ходы…' : 'Ваш ход принят и спрятан. Ждём соперника.';
+        if (seatDone(me)) {
+          const where = hasPlain(st) && hasCell(O.plain.i) ? ' на ' + cellName(st, O.plain.i) : '';
+          return theirs ? 'Открываем ходы…' : 'Ваш ход' + where + ' принят и спрятан. Ждём соперника.';
+        }
         if (ui.sel !== null) return pickHint;
         if (ui.action === 'shot') return shotHint;
         if (ui.action === 'moveAnchor') return moveHint;
+        if (ui.action === 'anchor') return anchorHint;
         if (moveCurrent(O.moves[me], st)) return 'Ход потерялся после перезагрузки. Выберите его заново.';
         return theirs ? 'Соперник уже сходил. Ваш ход.' : 'Выберите клетку. Соперник ходит одновременно с вами.';
       }
@@ -1139,6 +1171,7 @@
       if (ui.sel !== null) return pickHint;
       if (ui.action === 'shot') return shotHint;
       if (ui.action === 'moveAnchor') return moveHint;
+      if (ui.action === 'anchor') return anchorHint;
       return 'Ваш ход.';
     }
     if (busy) return 'Бот думает…';
@@ -1146,6 +1179,7 @@
     if (ui.sel !== null) return pickHint;
     if (ui.action === 'shot') return shotHint;
     if (ui.action === 'moveAnchor') return moveHint;
+    if (ui.action === 'anchor') return anchorHint;
     if (cfg.secret) {
       if (Lc.phase === 'pick1') return S.opp === 'bot' ? 'Выберите клетку. Бот ходит одновременно и не видит ваш выбор.' : 'Игрок 1 выбирает ход. Игрок 2, не смотрите.';
       return 'Игрок 2 выбирает ход. Игрок 1, не смотрите.';
@@ -1451,6 +1485,13 @@
       $('actShot').setAttribute('aria-pressed', ui.action === 'shot' ? 'true' : 'false');
       $('actShot').textContent = 'Выстрел · ' + st.shots[p];
       $('actShot').disabled = !E.canShoot(st, cfg, p);
+      const put = $('actAnchor');
+      put.hidden = !showAnchor || onBoard;
+      if (!put.hidden) {
+        put.textContent = 'Якорь · ' + st.anchorLeft[p];
+        put.disabled = !E.canAnchor(st, cfg, p);
+        put.setAttribute('aria-pressed', ui.action === 'anchor' ? 'true' : 'false');
+      }
       const move = $('actMove');
       move.hidden = !onBoard;
       if (onBoard) {
@@ -1465,10 +1506,6 @@
         take.disabled = left > 0;
         take.setAttribute('aria-pressed', ui.action === 'unanchor' ? 'true' : 'false');
       }
-      $('anchorBtn').hidden = !showAnchor || onBoard;
-      $('anchorBtn').textContent = 'Якорь · ' + st.anchorLeft[p];
-      $('anchorBtn').disabled = st.anchorLeft[p] === 0 || ui.action !== 'place';
-      $('anchorBtn').setAttribute('aria-pressed', ui.useAnchor ? 'true' : 'false');
     }
 
     const cbtn = $('confirm');
@@ -1477,7 +1514,7 @@
       cbtn.textContent = 'Ещё партия';
       cbtn.disabled = isOnline && !mySeat();
     } else {
-      cbtn.textContent = ui.action === 'shot' ? 'Выстрелить' : ui.action === 'unanchor' ? 'Забрать якорь' : ui.action === 'moveAnchor' ? 'Сдвинуть якорь' : 'Сделать ход';
+      cbtn.textContent = ACT_WORD[ui.action] || 'Сделать ход';
       cbtn.disabled = !(ui.sel !== null && human);
     }
     cbtn.hidden = waiting;
@@ -1738,12 +1775,7 @@
   $('resignBtn').addEventListener('click', resign);
   $('resignOnline').addEventListener('click', resign);
   $('logPanel').addEventListener('toggle', () => { S.logOpen = $('logPanel').open; save(); });
-  $('anchorBtn').addEventListener('click', () => {
-    const st = curSt(), p = picker();
-    if (!st || !p || !isHuman(p) || st.anchorLeft[p] === 0 || ui.action !== 'place') return;
-    ui.useAnchor = !ui.useAnchor;
-    render();
-  });
+  $('actAnchor').addEventListener('click', () => setAction(ui.action === 'anchor' ? 'place' : 'anchor'));
 
   // ---------- Start ----------
   setInterval(tickTimer, 250);
