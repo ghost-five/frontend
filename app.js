@@ -19,14 +19,14 @@
     { id: 'circle', name: 'Круг' }, { id: 'ring', name: 'Кольцо' }, { id: 'cross', name: 'Крест' },
     { id: 'square', name: 'Квадрат' }, { id: 'diamond', name: 'Ромб' }, { id: 'star', name: 'Звезда' }
   ];
-  const CFG_KEYS = ['size', 'secret', 'wallTtl', 'mem', 'anchor', 'shots', 'capture'];
+  const CFG_KEYS = ['size', 'secret', 'wallTtl', 'mem', 'anchor', 'shots', 'capture', 'timer'];
   const NICK_RE = /^[A-Za-zА-Яа-яЁё0-9_.-]{3,20}$/;
   const CODE_RE = /^[A-Z0-9]{4,8}$/;
 
   // ---------- Settings (per browser) ----------
   const S = {
     opp: 'bot', theme: 'auto',
-    size: 13, secret: true, wallTtl: 5, mem: 8, anchor: true, shots: 1, capture: false,
+    size: 13, secret: true, wallTtl: 5, mem: 8, anchor: true, shots: 1, capture: false, timer: 0,
     look: { 1: { color: 'cobalt', shape: 'circle' }, 2: { color: 'coral', shape: 'diamond' } }
   };
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
@@ -172,6 +172,8 @@
       case 'anchor': return N(e.p) + ' поставили якорь.';
       case 'hit': return e.guessed ? N(e.p) + ' угадали ход и сбили новую фишку!' : N(e.p) + ' сбили фишку ' + G(3 - e.p) + '.';
       case 'miss': return N(e.p) + ' выстрелили мимо.';
+      case 'anchorMiss': return N(e.p) + ' попали в якорь: его не сбить.';
+      case 'pass': return N(e.p) + ' не успели сходить.';
       case 'cap': return N(e.p) + ' захватили ' + (e.n === 1 ? 'пару' : 'пары: ' + e.n) + ' (' + e.total + '/5).';
       case 'vanish': return 'Исчезла старая фишка ' + G(e.p) + '.';
       case 'cool': return e.n === 1 ? 'Одна стена остыла.' : 'Остыло стен: ' + e.n + '.';
@@ -187,6 +189,7 @@
     if (E.anchorOn(cfg)) parts.push('якорь');
     if (cfg.shots) parts.push('выстрелы ' + cfg.shots);
     if (cfg.capture) parts.push('захват');
+    if (cfg.timer) parts.push(cfg.timer + ' с на ход');
     return parts.join(' · ');
   }
 
@@ -238,8 +241,8 @@
     if (!st || st.over || busy) return;
     const p = picker();
     if (!p || !isHuman(p) || !E.validTarget(st, curCfg(), p, i, ui.action)) return;
-    if (ui.sel === i) { confirmMove(); return; }
-    ui.sel = i;
+    // Повторное нажатие снимает выбор: ход уходит только кнопкой.
+    ui.sel = ui.sel === i ? null : i;
     render();
   }
   function setAction(a) {
@@ -703,6 +706,36 @@
     );
     O.committing = false;
     if (gameErr(error, 'Ход не отправился')) return;
+    // Свой ход показываем принятым сразу, не дожидаясь ответа на следующий запрос.
+    O.moves[me] = { gameNo: pl.gameNo, round: pl.round, commit, reveal: null };
+    render();
+    fetchGame();
+  }
+
+  // Отменить можно, пока соперник ещё выбирает: как только сходил он, ходы начинают раскрываться.
+  function canCancel() {
+    if (!online() || !O.game || !O.st || O.st.over || !O.game.cfg.secret || !O.game.p2) return false;
+    const me = mySeat();
+    if (!me || O.committing) return false;
+    return seatDone(me) && !moveCurrent(O.moves[3 - me], O.st);
+  }
+
+  async function cancelMove() {
+    if (!canCancel()) return;
+    const st = O.st, me = mySeat(), code = O.code;
+    O.committing = true; O.msg = ''; render();
+    // Пустой хеш означает «хода нет»: соперник снова видит, что вы выбираете.
+    const { error } = await sb.from('moves').upsert(
+      { game_code: code, seat: me, game_no: st.gameNo, round: st.round, commit: '', reveal: null },
+      { onConflict: 'game_code,seat' }
+    );
+    O.committing = false;
+    if (gameErr(error, 'Не удалось отменить ход')) return;
+    O.plain = null;
+    savePlain(code, null);
+    O.moves[me] = null;
+    resetUi();
+    render();
     fetchGame();
   }
 
@@ -803,6 +836,54 @@
     navigator.share({ title: 'Ghost Five', text: 'Сыграем? Код партии ' + O.code, url: gameLink(O.code) }).catch(() => {});
   }
 
+  // ---------- Время на ход ----------
+  // Отсчёт идёт у каждого свой, от момента, когда он увидел свою очередь:
+  // общие часы потребовали бы серверного времени, а расхождение тут меньше задержки сети.
+  const T = { key: '', start: 0, passed: '' };
+
+  function timerKey() {
+    const st = curSt(), cfg = curCfg();
+    if (!st || !cfg || !cfg.timer || st.over) return '';
+    if (online()) {
+      const g = O.game, me = mySeat();
+      if (!g || !g.p2 || !me || O.committing) return '';
+      if (g.cfg.secret) return seatDone(me) ? '' : 'o' + st.gameNo + 'r' + st.round;
+      return st.turn === me ? 'o' + st.gameNo + 'm' + st.moves : '';
+    }
+    if (R.route !== 'play' || busy) return '';
+    if (cfg.secret) return Lc.phase === 'handoff' ? '' : 'l' + st.gameNo + 'r' + st.round + Lc.phase;
+    return 'l' + st.gameNo + 'm' + st.moves + 't' + st.turn;
+  }
+
+  function tickTimer() {
+    const el = $('clock');
+    const key = timerKey();
+    if (!key) { T.key = ''; el.hidden = true; return; }
+    if (T.key !== key) { T.key = key; T.start = Date.now(); }
+    const left = Math.max(0, Math.ceil((T.start + curCfg().timer * 1000 - Date.now()) / 1000));
+    el.hidden = false;
+    el.textContent = left + ' с';
+    el.classList.toggle('low', left <= 5);
+    if (left > 0) return;
+    if (T.passed === key) return;
+    T.passed = key;
+    timeUp();
+  }
+
+  function timeUp() {
+    const st = curSt(), cfg = curCfg(), p = picker();
+    if (!st || st.over || !p) return;
+    const m = { i: -1, kind: 'pass', anchor: false };
+    resetUi();
+    if (online()) { if (cfg.secret) commitMove(m); else onlineSeq(m); return; }
+    if (!cfg.secret) { localSeq(p, m); return; }
+    if (Lc.phase === 'pick1') {
+      Lc.pending1 = m;
+      if (S.opp === 'bot') localRound(m, botDecide(st, cfg, 2));
+      else { Lc.phase = 'handoff'; render(); }
+    } else if (Lc.phase === 'pick2') localRound(Lc.pending1, m);
+  }
+
   // ---------- Rendering: game ----------
   let builtN = 0, cellEls = [], cellKeys = [];
   let fxKey = '', fxDone = '';
@@ -867,7 +948,7 @@
         if (fresh.has(i)) sc += ' pop';
         if (l === 1) { sc += ' fragile'; cls += ' frag'; } else if (l === 2) sc += ' worn';
         inner = '<span class="' + sc + '"></span>';
-        if (anchored) inner += '<span class="badge">∞</span>';
+        if (anchored) { cls += ' anchored a' + v; inner += '<span class="badge">∞</span>'; }
         else if (l && l <= 3) inner += '<span class="badge">' + l + '</span>';
         if (winSet.has(i)) cls += ' win-p' + v;
         if (st.last.includes(i)) cls += ' last';
@@ -892,7 +973,7 @@
   }
 
   function statusText(st, cfg) {
-    const pickHint = 'Нажмите на клетку ещё раз или «' + (ui.action === 'shot' ? 'Выстрелить' : 'Сделать ход') + '».';
+    const pickHint = 'Клетка выбрана. Нажмите «' + (ui.action === 'shot' ? 'Выстрелить' : 'Сделать ход') + '» или выберите другую.';
     const shotHint = cfg.secret ? 'Выберите цель: фишку соперника или пустую клетку, куда он может сходить.' : 'Выберите фишку соперника.';
     if (st.over) return resultText(st.winner, st.winReason);
     if (online()) {
@@ -935,7 +1016,8 @@
     const g = O.game, me = mySeat();
     if (!online() && Lc.cfg && Lc.cfg.secret && Lc.phase === 'handoff') {
       html = '<h2>Ход Игрока 1 спрятан</h2><p>Передайте устройство Игроку 2. Он выберет ход, не зная, что сделал первый.</p>' +
-        '<button class="btn primary" type="button" data-act="reveal">Я Игрок 2, показать поле</button>';
+        '<button class="btn primary" type="button" data-act="reveal">Я Игрок 2, показать поле</button>' +
+        '<button class="linkbtn" type="button" data-act="redo">Игрок 1 хочет выбрать заново</button>';
     } else if (online() && g && !g.p2 && me === 1 && g.status === 'declined') {
       html = '<h2>' + esc(nameOf(g.invitee)) + ' отказывается</h2><p>Можно удалить эту партию и позвать кого-нибудь ещё.</p>' +
         '<button class="btn primary" type="button" data-act="delete-game">Удалить партию</button>';
@@ -1132,6 +1214,10 @@
     const slot = $(route === 'online' ? 'rulesSlotOnline' : 'rulesSlotPlay');
     if (card.parentElement !== slot) slot.appendChild(card);
     $('rulesTitle').textContent = route === 'online' ? 'Правила новой партии' : 'Правила партии';
+    // Фишки настраиваются и в разделе «Вид», и прямо по ходу партии.
+    const looks = $('looksCard');
+    const lslot = $(route === 'look' ? 'looksSlotLook' : 'looksSlotPlay');
+    if (looks.parentElement !== lslot) lslot.appendChild(looks);
   }
 
   function render() {
@@ -1179,6 +1265,8 @@
     msg.hidden = !msg.textContent;
     if (!st) {
       $('round').textContent = 'Партия';
+      $('clock').hidden = true;
+      $('cancelMove').hidden = true;
       $('statusText').className = '';
       $('statusText').textContent = O.notFound
         ? 'Партия ' + O.code + ' не найдена. Возможно, её удалили или у вас нет к ней доступа.'
@@ -1212,6 +1300,7 @@
     }
 
     const cbtn = $('confirm');
+    const waiting = canCancel();
     if (st.over) {
       cbtn.textContent = 'Ещё партия';
       cbtn.disabled = isOnline && !mySeat();
@@ -1219,7 +1308,10 @@
       cbtn.textContent = ui.action === 'shot' ? 'Выстрелить' : 'Сделать ход';
       cbtn.disabled = !(ui.sel !== null && human);
     }
+    cbtn.hidden = waiting;
+    $('cancelMove').hidden = !waiting;
     $('newGame').hidden = st.over;
+    tickTimer();
 
     const nm = names();
     const score = isOnline ? Object.assign({ 1: 0, 2: 0, d: 0 }, O.game.score) : Lc.score;
@@ -1372,6 +1464,7 @@
     if (act === 'copy') copyLink();
     else if (act === 'share') shareLink();
     else if (act === 'reveal' && Lc.phase === 'handoff') { Lc.phase = 'pick2'; render(); }
+    else if (act === 'redo' && Lc.phase === 'handoff') { Lc.phase = 'pick1'; Lc.pending1 = null; resetUi(); render(); }
     else if (act === 'guest') { O.guest = true; go('play'); }
     else if (act === 'signout') {
       if (sb && O.myId) sb.auth.signOut();
@@ -1429,6 +1522,7 @@
   });
   $('toLobby').addEventListener('click', () => go('online'));
   $('confirm').addEventListener('click', confirmMove);
+  $('cancelMove').addEventListener('click', cancelMove);
   $('newGame').addEventListener('click', () => { if (!online()) newLocal(); });
   $('actPlace').addEventListener('click', () => setAction('place'));
   $('actShot').addEventListener('click', () => setAction(ui.action === 'shot' ? 'place' : 'shot'));
@@ -1440,6 +1534,7 @@
   });
 
   // ---------- Start ----------
+  setInterval(tickTimer, 250);
   applyTheme();
   Lc.starter = 2;
   Lc.cfg = pickCfg(S);

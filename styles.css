@@ -266,6 +266,18 @@ input:focus { outline: 0; border-color: var(--brand); background: var(--surface)
   color: var(--muted); padding: 4px 10px; border: 1px solid var(--rule); border-radius: 999px;
   font-variant-numeric: tabular-nums; white-space: nowrap; background: var(--surface);
 }
+.clock {
+  font-family: var(--mono); font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums;
+  padding: 4px 10px; border-radius: 999px; white-space: nowrap;
+  background: color-mix(in srgb, var(--brand) 16%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--brand) 40%, var(--rule)); color: var(--ink);
+}
+.clock.low {
+  background: color-mix(in srgb, var(--alert) 18%, var(--surface));
+  border-color: color-mix(in srgb, var(--alert) 55%, var(--rule)); color: var(--alert);
+  animation: blink 1s steps(2, end) infinite;
+}
+@keyframes blink { 50% { opacity: .5; } }
 #statusText { font-weight: 500; min-width: 0; }
 #statusText.win1 { color: var(--p1); font-weight: 600; }
 #statusText.win2 { color: var(--p2); font-weight: 600; }
@@ -300,6 +312,14 @@ input:focus { outline: 0; border-color: var(--brand); background: var(--surface)
   border: 1.5px dashed var(--muted);
 }
 .cell.selected::before { border-color: var(--ink); }
+/* Якорь: сплошная рамка цветом игрока — его не сбить выстрелом. */
+.cell.anchored { background: color-mix(in srgb, var(--ac) 14%, var(--cell)); }
+.cell.anchored.a1 { --ac: var(--p1); }
+.cell.anchored.a2 { --ac: var(--p2); }
+.cell.anchored::after {
+  content: ""; position: absolute; inset: 0; border-radius: 3px; pointer-events: none;
+  box-shadow: inset 0 0 0 2px var(--ac);
+}
 .cell.wall { background: repeating-linear-gradient(45deg, var(--wall) 0 3px, var(--wall-2) 3px 6px); }
 .cell.wall.cool { opacity: .5; }
 .cell.burn { animation: burn .8s ease-out; }

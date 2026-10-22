@@ -110,6 +110,7 @@
       <div class="playmain">
         <div class="status" id="statusRow">
           <span class="round" id="round">Раунд 1</span>
+          <span class="clock" id="clock" hidden></span>
           <span id="statusText">Выберите клетку</span>
         </div>
         <p class="msg" id="msg" hidden></p>
@@ -125,6 +126,7 @@
         </div>
         <div class="actions" id="actions">
           <button class="btn primary" id="confirm" type="button" disabled>Сделать ход</button>
+          <button class="btn ghost" id="cancelMove" type="button" hidden>Отменить ход</button>
         </div>
       </div>
 
@@ -150,14 +152,16 @@
           <ol class="log" id="log"></ol>
         </section>
 
+        <div id="looksSlotPlay"></div>
         <div id="rulesSlotPlay"></div>
 
         <section class="card">
           <h3 class="card-title">Как играть</h3>
           <div class="rules">
             <p><strong>Цель:</strong> 5 своих фишек подряд по горизонтали, вертикали или диагонали.</p>
-            <p><strong>Ход:</strong> нажмите на клетку, чтобы выбрать её, и нажмите ещё раз или кнопку «Сделать ход».</p>
-            <p><strong>Цифра в углу клетки</strong> показывает, через сколько ваших ходов исчезнет фишка или через сколько раундов остынет стена. Фишка в пунктирной рамке исчезнет следующим ходом. Знак ∞ отмечает якорь.</p>
+            <p><strong>Ход:</strong> нажмите на клетку, чтобы выбрать её, и подтвердите кнопкой «Сделать ход». Пока соперник выбирает, ход можно отменить и выбрать заново.</p>
+            <p><strong>Цифра в углу клетки</strong> показывает, через сколько ваших ходов исчезнет фишка или через сколько раундов остынет стена. Фишка в пунктирной рамке исчезнет следующим ходом.</p>
+            <p><strong>Якорь</strong> отмечен знаком ∞ и сплошной рамкой: он не исчезает от времени и его нельзя сбить выстрелом.</p>
             <p><strong>По сети</strong> тайные ходы шифруются: соперник видит только, что вы сходили, а сам ход открывается, когда сходили оба.</p>
           </div>
         </section>
@@ -214,10 +218,7 @@
       <p class="sub">Цвет и форма фишек, тема оформления. Настройки сохраняются в этом браузере.</p>
     </div>
     <div class="cols">
-      <section class="card">
-        <h3 class="card-title">Фишки</h3>
-        <div id="looks"></div>
-      </section>
+      <div class="col" id="looksSlotLook"></div>
       <section class="card">
         <h3 class="card-title">Тема</h3>
         <div class="setting"><div class="row"><span>Оформление</span>
@@ -265,6 +266,12 @@
     </div>
   </section>
 
+  <!-- Фишки: карточка переезжает в раздел «Вид» или в бок экрана игры -->
+  <section class="card" id="looksCard">
+    <h3 class="card-title">Фишки</h3>
+    <div id="looks"></div>
+  </section>
+
   <!-- Правила партии: переезжают на экран игры или в лобби -->
   <section class="card rules-card" id="rulesCard">
     <h3 class="card-title" id="rulesTitle">Правила партии</h3>
@@ -290,6 +297,10 @@
     <div class="setting" id="set-shots"><div class="row"><span>Выстрелы</span>
       <div class="seg" data-key="shots" data-type="num"><button type="button" data-v="0">Выкл</button><button type="button" data-v="1">1</button><button type="button" data-v="2">2</button><button type="button" data-v="3">3</button></div></div>
       <p class="hint">Вместо хода сбейте фишку соперника. С тайным ходом можно стрелять в пустую клетку, угадывая, куда он пойдёт.</p>
+    </div>
+    <div class="setting" id="set-timer"><div class="row"><span>Время на ход</span>
+      <div class="seg" data-key="timer" data-type="num"><button type="button" data-v="0">Без времени</button><button type="button" data-v="15">15 с</button><button type="button" data-v="30">30 с</button><button type="button" data-v="60">60 с</button></div></div>
+      <p class="hint">Не успели выбрать — ход пропадает, соперник ходит один.</p>
     </div>
     <div class="setting" id="set-capture"><div class="row"><span>Захват пар</span>
       <div class="seg" data-key="capture" data-type="bool"><button type="button" data-v="1">Вкл</button><button type="button" data-v="0">Выкл</button></div></div>

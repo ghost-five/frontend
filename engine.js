@@ -120,12 +120,15 @@
       if (typeof i !== 'number' || i < 0 || i >= st.cells.length) return false;
       const v = st.cells[i];
       if (kind === 'place') return v === 0;
-      if (kind === 'shot') return v === 3 - p || (!!cfg.secret && v === 0);
+      // Якорь выстрелом не берётся, целиться в него незачем.
+      if (kind === 'shot') return (v === 3 - p && !st.anchors.includes(i)) || (!!cfg.secret && v === 0);
       return false;
     },
 
     canShoot(st, cfg, p) {
-      return cfg.shots > 0 && st.shots[p] > 0 && (!!cfg.secret || st.cells.includes(3 - p));
+      if (!(cfg.shots > 0 && st.shots[p] > 0)) return false;
+      if (cfg.secret) return true;
+      return st.cells.some((v, i) => v === 3 - p && !st.anchors.includes(i));
     },
 
     // Тайный ход: оба хода открываются одновременно.
@@ -151,12 +154,17 @@
         for (const [p, m] of [[1, m1], [2, m2]]) {
           if (m.kind !== 'shot' || st.shots[p] <= 0) continue;
           st.shots[p]--;
-          if (st.cells[m.i] === 3 - p) {
+          const target = st.cells[m.i];
+          if (target === 3 - p && st.anchors.includes(m.i)) ev.push({ k: 'anchorMiss', p });
+          else if (target === 3 - p) {
             const guessed = placed.some(([pp, ii]) => pp === 3 - p && ii === m.i);
             E.remove(st, m.i);
             st.last = st.last.filter((x) => x !== m.i);
             ev.push({ k: 'hit', p, guessed });
           } else ev.push({ k: 'miss', p });
+        }
+        for (const [p, m] of [[1, m1], [2, m2]]) {
+          if (m.kind !== 'place' && m.kind !== 'shot') ev.push({ k: 'pass', p });
         }
         if (!ev.length) ev.push({ k: 'open' });
       }
@@ -185,11 +193,17 @@
         st.fx.fresh.push(m.i); st.last = [m.i];
         E.doCaptures(st, cfg, [[p, m.i]], ev);
         if (E.trim(st, cfg, p)) ev.push({ k: 'vanish', p });
-      } else {
+      } else if (m.kind === 'shot') {
         st.shots[p]--;
-        E.remove(st, m.i);
-        st.last = [];
-        ev.push({ k: 'hit', p, guessed: false });
+        if (st.anchors.includes(m.i)) ev.push({ k: 'anchorMiss', p });
+        else {
+          E.remove(st, m.i);
+          st.last = [];
+          ev.push({ k: 'hit', p, guessed: false });
+        }
+      } else {
+        // Ход пропущен: кончилось время.
+        ev.push({ k: 'pass', p });
       }
       if (ev.length) E.log(st, tag, ev);
       const w = E.checkWin(st, cfg, p);
@@ -285,7 +299,7 @@
       if (threats >= 2) {
         let best = -1, bestCount = threats;
         for (let s = 0; s < n * n; s++) {
-          if (st.cells[s] !== opp || vb[s] !== opp) continue;
+          if (st.cells[s] !== opp || vb[s] !== opp || st.anchors.includes(s)) continue;
           const t = vb.slice(); t[s] = 0;
           const cnt = winCellCount(st, t, opp);
           if (cnt < bestCount) { bestCount = cnt; best = s; }
