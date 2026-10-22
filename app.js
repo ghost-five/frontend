@@ -71,7 +71,7 @@
   const R = { route: 'auth' };
   const online = () => R.route === 'game';
   const Lc = { st: null, cfg: null, phase: 'pick', pending1: null, score: { 1: 0, 2: 0, d: 0 }, starter: 2 };
-  const ui = { sel: null, action: 'place' };
+  const ui = { sel: null, action: 'place', take: false };
   let busy = false;
   const O = {
     // account
@@ -80,7 +80,7 @@
     profileMsg: '', profileErr: false,
     // home
     friends: [], games: [], invites: [], names: {}, ratings: {}, top: [], topMsg: '', rated: '',
-    homeMsg: '', friendMsg: '', friendErr: false, confirmResign: false,
+    homeMsg: '', friendMsg: '', friendErr: false, confirmResign: false, confirmDelete: '',
     homeChan: null, homePoll: null, homeSeq: 0, confirmRemove: null,
     // one game
     code: null, game: null, st: null, moves: { 1: null, 2: null }, notFound: false,
@@ -135,13 +135,15 @@
     if (b > 1 && b < 5) return few;
     return many;
   }
-  const resetUi = () => { ui.sel = null; ui.action = 'place'; };
+  const resetUi = () => { ui.sel = null; ui.action = 'place'; ui.take = false; };
 
   function mySeat() {
     if (!O.game || !O.myId) return 0;
     return O.game.p1 === O.myId ? 1 : O.game.p2 === O.myId ? 2 : 0;
   }
   const inOnlineGame = () => !!O.game && !!mySeat();
+  // Партия не начата: ни одного разрешённого хода, отменить её может любой из двоих.
+  const notStarted = (st) => !!st && !st.over && (st.round || 1) === 1 && (st.moves || 0) === 0;
   function moveCurrent(d, st) { return !!(d && st && d.gameNo === st.gameNo && d.round === st.round && d.commit); }
   function hasPlain(st) { return !!(O.plain && st && O.plain.gameNo === st.gameNo && O.plain.round === st.round); }
   function seatDone(seat) {
@@ -315,13 +317,10 @@
     const st = curSt(), cfg = curCfg(), p = picker();
     if (!st || !p || !isHuman(p) || busy) return;
     if (a === 'shot' && !E.canShoot(st, cfg, p)) return;
-    if (a === 'unanchor' && !E.canUnanchor(st, cfg, p)) return;
     if (a === 'moveAnchor' && E.anchorOf(st, p) < 0) return;
     if (a === 'anchor' && !E.canAnchor(st, cfg, p)) return;
     ui.action = a;
     if (ui.sel !== null && !E.validTarget(st, cfg, p, ui.sel, a)) ui.sel = null;
-    // Забирать нечего, кроме собственного якоря: клетка выбирается сама.
-    if (a === 'unanchor') ui.sel = E.anchorOf(st, p);
     render();
   }
   function confirmMove() {
@@ -334,7 +333,7 @@
     const p = picker();
     if (!p || !isHuman(p) || ui.sel === null || busy) return;
     const cfg = curCfg();
-    const m = { i: ui.sel, kind: ui.action, anchor: false };
+    const m = { i: ui.sel, kind: ui.action, anchor: false, take: ui.take && E.canUnanchor(st, cfg, p) };
     resetUi();
     if (online()) { if (cfg.secret) commitMove(m); else onlineSeq(m); return; }
     if (cfg.secret) {
@@ -365,7 +364,7 @@
     catch (e) { return Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2); }
   }
   async function hashPlain(pl) {
-    const str = [pl.gameNo, pl.round, pl.i, pl.kind, pl.anchor ? 1 : 0, pl.salt].join('|');
+    const str = [pl.gameNo, pl.round, pl.i, pl.kind, pl.anchor ? 1 : 0, pl.take ? 1 : 0, pl.salt].join('|');
     try {
       const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
       return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join('');
@@ -586,7 +585,7 @@
     if (!sb || !me) return;
     // Запросы могут вернуться не в том порядке, в каком ушли: старый ответ не должен затирать свежий.
     const seq = ++O.homeSeq;
-    const cols = 'code,p1,p2,invitee,status,cfg,updated_at,over:state->over,turn:state->turn';
+    const cols = 'code,p1,p2,invitee,status,cfg,updated_at,over:state->over,turn:state->turn,round:state->round,moves:state->moves';
     const [fr, games, inv] = await Promise.all([
       sb.from('friendships').select('requester,addressee,status'),
       sb.from('games').select(cols).or('p1.eq.' + me + ',p2.eq.' + me).order('updated_at', { ascending: false }).limit(20),
@@ -672,6 +671,17 @@
     if (error) { O.homeMsg = errText(error); render(); return; }
     refreshHome();
   }
+  function askDelete(code) {
+    if (O.confirmDelete !== code) {
+      O.confirmDelete = code;
+      render();
+      setTimeout(() => { if (O.confirmDelete === code) { O.confirmDelete = ''; render(); } }, 4000);
+      return;
+    }
+    O.confirmDelete = '';
+    deleteGame(code);
+  }
+
   async function deleteGame(code) {
     const { error } = await sb.from('games').delete().eq('code', code);
     if (error) { O.homeMsg = O.msg = 'Не удалось удалить партию: ' + errText(error); render(); return; }
@@ -765,7 +775,7 @@
   async function commitMove(m) {
     const st = O.st, me = mySeat(), code = O.code;
     if (!st || !me) return;
-    const pl = { gameNo: st.gameNo, round: st.round, i: m.i, kind: m.kind, anchor: !!m.anchor, salt: randSalt() };
+    const pl = { gameNo: st.gameNo, round: st.round, i: m.i, kind: m.kind, anchor: !!m.anchor, take: !!m.take, salt: randSalt() };
     O.plain = pl;
     savePlain(code, pl);
     O.committing = true; O.msg = ''; render();
@@ -818,7 +828,7 @@
       O.revealing = key;
       const pl = O.plain;
       const { error } = await sb.from('moves')
-        .update({ reveal: { i: pl.i, kind: pl.kind, anchor: pl.anchor, salt: pl.salt } })
+        .update({ reveal: { i: pl.i, kind: pl.kind, anchor: pl.anchor, take: !!pl.take, salt: pl.salt } })
         .eq('game_code', code).eq('seat', me).eq('game_no', pl.gameNo).eq('round', pl.round);
       if (error) { O.revealing = ''; gameErr(error, 'Не удалось открыть ход'); return; }
       fetchGame();
@@ -829,10 +839,12 @@
       const mv = {};
       for (const s of [1, 2]) {
         const d = O.moves[s], r = d.reveal || {};
-        const pl = { gameNo: d.gameNo, round: d.round, i: r.i, kind: r.kind, anchor: !!r.anchor, salt: r.salt };
+        const pl = { gameNo: d.gameNo, round: d.round, i: r.i, kind: r.kind, anchor: !!r.anchor, take: !!r.take, salt: r.salt };
         const ok = (await hashPlain(pl)) === d.commit;
-        let m = { i: pl.i, kind: pl.kind, anchor: pl.anchor };
-        if (!ok || !E.validTarget(st, g.cfg, s, m.i, m.kind) || (m.kind === 'shot' && st.shots[s] <= 0)) m = { kind: 'pass' };
+        let m = { i: pl.i, kind: pl.kind, anchor: pl.anchor, take: pl.take };
+        // Подделанный ход отбрасываем целиком, невозможный — только его ходовую часть.
+        if (!ok) m = { kind: 'pass' };
+        else if (!E.validTarget(st, g.cfg, s, m.i, m.kind) || (m.kind === 'shot' && st.shots[s] <= 0)) m = { kind: 'pass', take: m.take };
         mv[s] = m;
       }
       if (O.code !== code || !O.st || O.st.gameNo !== st.gameNo || O.st.round !== st.round || O.st.over) return;
@@ -996,7 +1008,12 @@
   function timeUp() {
     const st = curSt(), cfg = curCfg(), p = picker();
     if (!st || st.over || !p) return;
-    const m = { i: -1, kind: 'pass', anchor: false };
+    // Клетку выбрали, но не успели подтвердить — ход всё равно идёт туда.
+    const ready = ui.sel !== null && E.validTarget(st, cfg, p, ui.sel, ui.action);
+    const take = ui.take && E.canUnanchor(st, cfg, p);
+    const m = ready
+      ? { i: ui.sel, kind: ui.action, anchor: false, take }
+      : { i: -1, kind: 'pass', anchor: false, take };
     resetUi();
     if (online()) { if (cfg.secret) commitMove(m); else onlineSeq(m); return; }
     if (!cfg.secret) { localSeq(p, m); return; }
@@ -1089,6 +1106,7 @@
       // Куда можно поставить или двинуть якорь — помечаем, иначе выбор неочевиден.
       if (okHere && (ui.action === 'moveAnchor' || (ui.action === 'anchor' && v === p))) cls += ' target';
       if (i === fromCell) cls += ' from';
+      if (ui.take && human && p && i === E.anchorOf(st, p)) cls += ' leaving';
       if (v === 3) {
         cls += ' wall' + (fx.burn === i ? ' burn' : '');
         const ttl = walls.get(i);
@@ -1138,9 +1156,7 @@
 
   function statusText(st, cfg) {
     const actWord = ACT_WORD[ui.action] || 'Сделать ход';
-    const pickHint = ui.action === 'unanchor'
-      ? 'Якорь выбран. Нажмите «Забрать якорь»: это будет ваш ход.'
-      : 'Клетка выбрана. Нажмите «' + actWord + '» или выберите другую.';
+    const pickHint = 'Клетка выбрана. Нажмите «' + actWord + '» или выберите другую.';
     const moveHint = 'Выберите соседнюю клетку: пустую или со стеной — якорь её проломит.';
     const anchorHint = 'Выберите пустую клетку или свою фишку на поле — она станет якорем.';
     const shotHint = cfg.secret ? 'Выберите цель: фишку соперника или пустую клетку, куда он может сходить.' : 'Выберите фишку соперника.';
@@ -1312,7 +1328,11 @@
       const row = li();
       const host = g.p1 === O.myId;
       const actions = [btn('Открыть', { act: 'open-game', code: g.code })];
-      if (host && (!g.p2 || g.over)) actions.push(btn('Удалить', { act: 'delete-game', code: g.code }, 'warn'));
+      const fresh = (g.round || 1) === 1 && (g.moves || 0) === 0 && !g.over;
+      if ((host && (!g.p2 || g.over)) || fresh) {
+        const sure = O.confirmDelete === g.code;
+        actions.push(btn(sure ? 'Точно удалить?' : 'Удалить', { act: 'ask-delete', code: g.code }, 'warn'));
+      }
       row.append(info(gameState(g), g.code + ' · ' + cfgSummary(g.cfg)), btns(...actions));
       gl.appendChild(row);
     }
@@ -1503,9 +1523,10 @@
       if (onBoard) {
         const left = E.ANCHOR_HOLD - E.anchorAge(st, cfg, p);
         take.textContent = left > 0 ? 'Забрать якорь · через ' + left : 'Забрать якорь';
-        take.disabled = left > 0;
-        take.setAttribute('aria-pressed', ui.action === 'unanchor' ? 'true' : 'false');
+        take.disabled = left > 0 || ui.action === 'moveAnchor';
+        take.setAttribute('aria-pressed', ui.take ? 'true' : 'false');
       }
+      $('actMove').disabled = ui.take;
     }
 
     const cbtn = $('confirm');
@@ -1520,12 +1541,16 @@
     cbtn.hidden = waiting;
     $('cancelMove').hidden = !waiting;
     $('newGame').hidden = st.over;
-    const canResign = !st.over && (isOnline ? !!mySeat() && !!O.game.p2 : true);
+    const fresh = notStarted(st);
+    const canResign = !st.over && !fresh && (isOnline ? !!mySeat() && !!O.game.p2 : true);
     const rbtn = isOnline ? $('resignOnline') : $('resignBtn');
     const other = isOnline ? $('resignBtn') : $('resignOnline');
     other.hidden = true;
     rbtn.hidden = !canResign;
     rbtn.textContent = O.confirmResign ? 'Точно сдаться?' : 'Сдаться';
+    const cancel = $('cancelGame');
+    cancel.hidden = !(isOnline && fresh && !!mySeat());
+    cancel.textContent = O.confirmDelete === O.code ? 'Точно отменить?' : 'Отменить партию';
     tickTimer();
 
     const nm = names();
@@ -1722,6 +1747,7 @@
     else if (act === 'inv-decline') declineInvite(t.dataset.code);
     else if (act === 'open-game') openGame(t.dataset.code, false);
     else if (act === 'delete-game') deleteGame(t.dataset.code || O.code);
+    else if (act === 'ask-delete') askDelete(t.dataset.code || O.code);
   });
 
   window.addEventListener('hashchange', () => {
@@ -1770,10 +1796,17 @@
   $('newGame').addEventListener('click', () => { if (!online()) newLocal(); });
   $('actPlace').addEventListener('click', () => setAction('place'));
   $('actShot').addEventListener('click', () => setAction(ui.action === 'shot' ? 'place' : 'shot'));
-  $('actTake').addEventListener('click', () => setAction(ui.action === 'unanchor' ? 'place' : 'unanchor'));
+  $('actTake').addEventListener('click', () => {
+    const st = curSt(), cfg = curCfg(), p = picker();
+    // Возврат якоря не стоит хода: это отметка к ходу, а не сам ход.
+    if (!st || !p || !isHuman(p) || busy || !E.canUnanchor(st, cfg, p)) return;
+    ui.take = !ui.take;
+    if (ui.take && ui.action === 'moveAnchor') setAction('place'); else render();
+  });
   $('actMove').addEventListener('click', () => setAction(ui.action === 'moveAnchor' ? 'place' : 'moveAnchor'));
   $('resignBtn').addEventListener('click', resign);
   $('resignOnline').addEventListener('click', resign);
+  $('cancelGame').addEventListener('click', () => askDelete(O.code));
   $('logPanel').addEventListener('toggle', () => { S.logOpen = $('logPanel').open; save(); });
   $('actAnchor').addEventListener('click', () => setAction(ui.action === 'anchor' ? 'place' : 'anchor'));
 

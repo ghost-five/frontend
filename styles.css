@@ -575,3 +575,10 @@ input:focus { outline: 0; border-color: var(--brand); background: var(--surface)
 .cell.pending { background: color-mix(in srgb, var(--brand) 10%, var(--cell)); }
 .badge.mark { font-size: clamp(9px, 1.5vw, 13px); color: var(--ink); opacity: .85; }
 .aim.soft { border-color: var(--brand); opacity: .75; }
+
+/* Якорь, отмеченный к возврату в запас. */
+.cell.leaving { opacity: .55; }
+.cell.leaving::before {
+  content: ""; position: absolute; inset: 2px; border-radius: 4px; pointer-events: none;
+  border: 1.5px dashed var(--brand);
+}

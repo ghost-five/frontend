@@ -216,6 +216,8 @@
       E.resetFx(st);
       st.scar = [];
       const tag = 'Р' + st.round, ev = [], placed = [];
+      // Якорь забирают бесплатно и до самого хода: освободившаяся клетка сразу годится.
+      for (const [p, m] of [[1, m1], [2, m2]]) if (m.take) E.takeAnchor(st, cfg, p, ev);
       // Ход «якорь» на пустую клетку — это тоже постановка фишки.
       const putting = (m) => (m.kind === 'place' || m.kind === 'anchor') && st.cells[m.i] === 0;
       let kind = '', newWall = -1;
@@ -252,8 +254,11 @@
           if (m.kind === 'unanchor') E.takeAnchor(st, cfg, p, ev);
           else if (m.kind === 'moveAnchor') E.moveAnchor(st, cfg, p, m.i, ev);
         }
-        const acted = new Set(ev.map((e) => e.p));
-        for (const [p, m] of [[1, m1], [2, m2]]) if (!acted.has(p)) ev.push({ k: 'pass', p });
+        // Снятие якоря ходом не считается, поэтому в «не успел сходить» оно не входит.
+        const acted = new Set(ev.filter((e) => e.k !== 'unanchor').map((e) => e.p));
+        for (const [p, m] of [[1, m1], [2, m2]]) {
+          if (!acted.has(p) && m.kind !== 'unanchor') ev.push({ k: 'pass', p });
+        }
         if (!ev.length) ev.push({ k: 'open' });
       }
       E.doCaptures(st, cfg, placed, ev);
@@ -278,6 +283,7 @@
       st.scar = [];
       st.moves++;
       const tag = 'Х' + st.moves, ev = [];
+      if (m.take) E.takeAnchor(st, cfg, p, ev);
       if (m.kind === 'anchor' && st.cells[m.i] === p) {
         st.last = [m.i];
         E.setAnchor(st, cfg, p, m.i, ev);
