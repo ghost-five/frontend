@@ -26,7 +26,7 @@
 
   // ---------- Settings (per browser) ----------
   const S = {
-    opp: 'bot', theme: 'auto', logOpen: true,
+    opp: 'bot', theme: 'auto', logOpen: true, sound: true,
     size: 13, win: 4, secret: true, wallTtl: 5, mem: 8, anchor: true, shots: 1, capture: false, timer: 0, bank: 60,
     look: { 1: { color: 'cobalt', shape: 'circle' }, 2: { color: 'coral', shape: 'diamond' } }
   };
@@ -35,7 +35,7 @@
   try {
     const saved = JSON.parse(lsGet('ghost5-settings') || 'null');
     if (saved && typeof saved === 'object') {
-      for (const k of ['opp', 'theme', 'logOpen'].concat(CFG_KEYS)) if (k in saved) S[k] = saved[k];
+      for (const k of ['opp', 'theme', 'logOpen', 'sound'].concat(CFG_KEYS)) if (k in saved) S[k] = saved[k];
       for (const p of [1, 2]) {
         const l = saved.look && saved.look[p];
         if (l && COLORS.some((c) => c.id === l.color)) S.look[p].color = l.color;
@@ -83,7 +83,7 @@
     homeMsg: '', friendMsg: '', friendErr: false, confirmResign: false, confirmDelete: '', confirmQuit: '',
     homeChan: null, homePoll: null, homeSeq: 0, confirmRemove: null,
     // one game
-    code: null, game: null, st: null, moves: { 1: null, 2: null }, notFound: false,
+    code: null, game: null, st: null, moves: { 1: null, 2: null }, notFound: false, hideResult: '',
     chan: null, poll: null, live: false, lastFetch: 0, fetchSeq: 0,
     plain: null, revealing: '', resolving: '', committing: false, joining: false, creating: false,
     msg: ''
@@ -358,6 +358,7 @@
     const cfg = curCfg();
     const m = { i: ui.sel, kind: ui.action, anchor: false, take: ui.take && E.canUnanchor(st, cfg, p), spent: overSpend(st, cfg) };
     resetUi();
+    SFX.move();
     if (online()) { if (cfg.secret) commitMove(m); else onlineSeq(m); return; }
     if (cfg.secret) {
       if (Lc.phase === 'pick1') {
@@ -801,6 +802,7 @@
     if (g.error) { gameErr(g.error, 'Не удалось загрузить партию'); return; }
     if (!g.data) { O.notFound = true; O.game = null; O.st = null; render(); return; }
     O.notFound = false;
+    if (O.game && !O.game.p2 && g.data.p2 && O.game.code === g.data.code) SFX.join();
     O.game = g.data;
     O.st = g.data.state;
     const mv = { 1: null, 2: null };
@@ -1028,6 +1030,73 @@
     fetchGame();
   }
 
+  // ---------- Звук ----------
+  // Сигналы синтезируются на лету: ни одного файла и никакой загрузки.
+  const SFX = (() => {
+    let ctx = null;
+    function audio() {
+      if (!S.sound) return null;
+      try {
+        const Ctor = window.AudioContext || window.webkitAudioContext;
+        if (!Ctor) return null;
+        if (!ctx) ctx = new Ctor();
+        if (ctx.state === 'suspended') ctx.resume();
+        return ctx;
+      } catch (e) { return null; }
+    }
+    function blip(freq, dur, o) {
+      const c = audio();
+      if (!c) return;
+      const opt = o || {};
+      const t0 = c.currentTime + (opt.at || 0);
+      const osc = c.createOscillator(), gain = c.createGain();
+      osc.type = opt.type || 'sine';
+      osc.frequency.setValueAtTime(freq, t0);
+      if (opt.to) osc.frequency.exponentialRampToValueAtTime(Math.max(40, opt.to), t0 + dur);
+      const vol = opt.gain == null ? 0.07 : opt.gain;
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.exponentialRampToValueAtTime(vol, t0 + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      osc.connect(gain).connect(c.destination);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.03);
+    }
+    const seq = (notes, o) => notes.forEach((n, k) => blip(n, (o && o.dur) || 0.14, Object.assign({}, o, { at: k * ((o && o.step) || 0.1) })));
+    return {
+      ready: () => !!audio(),
+      move: () => blip(560, 0.09, { to: 440 }),
+      shot: () => blip(900, 0.18, { to: 120, type: 'sawtooth', gain: 0.05 }),
+      burn: () => blip(190, 0.28, { to: 80, type: 'square', gain: 0.05 }),
+      anchor: () => seq([330, 494], { dur: 0.16, step: 0.08, type: 'triangle' }),
+      capture: () => seq([660, 880], { dur: 0.13, step: 0.07 }),
+      tick: () => blip(1150, 0.05, { gain: 0.03, type: 'square' }),
+      timeout: () => seq([300, 200], { dur: 0.22, step: 0.14, type: 'square', gain: 0.05 }),
+      join: () => seq([587, 880], { dur: 0.2, step: 0.12, type: 'triangle' }),
+      win: () => seq([523, 659, 784, 1047], { dur: 0.32, step: 0.11, type: 'triangle', gain: 0.075 }),
+      lose: () => seq([392, 330, 262], { dur: 0.36, step: 0.15, type: 'triangle', gain: 0.06 })
+    };
+  })();
+
+  // Один звук на событие раунда: какофония из пяти сигналов сразу никому не нужна.
+  function playRound(st) {
+    const rec = st.log && st.log[0];
+    if (!rec || !rec.ev.length) return;
+    const has = (k) => rec.ev.some((e) => e.k === k);
+    if (has('result')) {
+      const w = st.winner, mine = online() ? mySeat() : 1;
+      if (!w) SFX.timeout();
+      else if (w === mine) SFX.win();
+      else SFX.lose();
+      return;
+    }
+    if (has('burn')) return SFX.burn();
+    if (has('hit') || has('miss') || has('anchorMiss')) return SFX.shot();
+    if (has('cap')) return SFX.capture();
+    if (has('anchor') || has('anchorSet') || has('anchorMove') || has('unanchor')) return SFX.anchor();
+    if (has('pass')) return SFX.timeout();
+    if (has('place')) return SFX.move();
+  }
+
   // ---------- Время на ход ----------
   // Отсчёт идёт у каждого свой, от момента, когда он увидел свою очередь:
   // общие часы потребовали бы серверного времени, а расхождение тут меньше задержки сети.
@@ -1065,8 +1134,10 @@
   function tickTimer() {
     const el = $('clock'), bk = $('bankClock');
     const key = timerKey();
-    if (!key) { T.key = ''; el.hidden = true; bk.hidden = true; return; }
-    if (T.key !== key) { T.key = key; T.start = Date.now(); }
+    // Пауза (ход отправлен, идёт раскрытие) часы прячет, но отсчёт не сбрасывает:
+    // иначе отмена хода дарила бы игроку полный лимит заново.
+    if (!key) { el.hidden = true; bk.hidden = true; return; }
+    if (T.key !== key) { T.key = key; T.start = Date.now(); T.passed = ''; }
     const st = curSt(), cfg = curCfg(), seat = timerSeat();
     const limit = cfg.timer, whole = cfg.bank || 0;
     const left = whole ? (st.bank && st.bank[seat]) || 0 : 0;
@@ -1087,6 +1158,11 @@
       bk.classList.toggle('active', main <= 0 && bankNow > 0);
       bk.classList.toggle('low', main <= 0 && bankNow > 0 && bankNow <= 5);
     }
+    const sec = Math.ceil(main > 0 ? main : bankNow);
+    if (sec !== T.sec) {
+      if (T.sec !== undefined && sec > 0 && sec <= 5 && seat && isHuman(seat)) SFX.tick();
+      T.sec = sec;
+    }
     if (main > 0 || bankNow > 0) return;
     if (T.passed === key) return;
     T.passed = key;
@@ -1104,6 +1180,7 @@
       ? { i: ui.sel, kind: ui.action, anchor: false, take, spent }
       : { i: -1, kind: 'pass', anchor: false, take, spent };
     resetUi();
+    SFX.move();
     if (online()) { if (cfg.secret) commitMove(m); else onlineSeq(m); return; }
     if (!cfg.secret) { localSeq(p, m); return; }
     if (Lc.phase === 'pick1') {
@@ -1169,7 +1246,11 @@
     ensureBoard(st.n);
     const n = st.n, L = cfg.mem;
     const k = st.gameNo + ':' + st.round + ':' + st.moves + ':' + st.log.length;
-    if (k !== fxKey) { fxKey = k; setTimeout(() => { fxDone = k; render(); }, 750); }
+    if (k !== fxKey) {
+      if (fxKey) playRound(st);
+      fxKey = k;
+      setTimeout(() => { fxDone = k; render(); }, 750);
+    }
     const none = { fresh: [], gone: [], burn: -1 };
     const fx = fxDone === fxKey ? none : (st.fx || none);
     const life = new Map();
@@ -1294,10 +1375,38 @@
 
   function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
+  function sparks() {
+    let out = '<span class="sparks" aria-hidden="true">';
+    for (let k = 0; k < 14; k++) {
+      const a = (360 / 14) * k + (Math.random() * 14 - 7);
+      const d = 70 + Math.random() * 80;
+      out += '<i style="--a:' + a.toFixed(1) + 'deg; --d:' + d.toFixed(0) + 'px; --t:' + (Math.random() * 0.22).toFixed(2) + 's"></i>';
+    }
+    return out + '</span>';
+  }
+  const resultKey = (st) => (online() ? O.code : 'local') + ':' + st.gameNo;
+
   function renderCover() {
     let html = '';
     const g = O.game, me = mySeat();
-    if (!online() && Lc.cfg && Lc.cfg.secret && Lc.phase === 'handoff') {
+    const st = curSt();
+    const cover0 = $('cover');
+    cover0.classList.remove('finish');
+    if (st && st.over && O.hideResult !== resultKey(st)) {
+      const w = st.winner;
+      const mine = online() ? me : 1;
+      const score = online() ? Object.assign({ 1: 0, 2: 0, d: 0 }, g && g.score) : Lc.score;
+      const kind = !w ? 'draw' : w === mine ? 'won' : 'lost';
+      const canAgain = !online() || !!me;
+      cover0.classList.add('finish');
+      html = '<div class="result ' + kind + (w ? ' w' + w : '') + '">' +
+        (w ? sparks() : '') +
+        '<h2>' + esc(resultText(w, st.winReason)) + '</h2>' +
+        '<p class="tally">' + score[1] + ' : ' + score[2] + ' · ничьих ' + (score.d || 0) + '</p>' +
+        (canAgain ? '<button class="btn primary" type="button" data-act="again">Ещё партия</button>' : '') +
+        '<button class="linkbtn" type="button" data-act="see-board">Посмотреть поле</button>' +
+      '</div>';
+    } else if (!online() && Lc.cfg && Lc.cfg.secret && Lc.phase === 'handoff') {
       html = '<h2>Ход Игрока 1 спрятан</h2><p>Передайте устройство Игроку 2. Он выберет ход, не зная, что сделал первый.</p>' +
         '<button class="btn primary" type="button" data-act="reveal">Я Игрок 2, показать поле</button>' +
         '<button class="linkbtn" type="button" data-act="redo">Игрок 1 хочет выбрать заново</button>';
@@ -1633,7 +1742,9 @@
       cbtn.textContent = ACT_WORD[ui.action] || 'Сделать ход';
       cbtn.disabled = !(ui.sel !== null && human);
     }
-    cbtn.hidden = waiting;
+    // Пока открыта ширма с итогом, вторая кнопка «Ещё партия» под доской лишняя.
+    const onCover = st.over && O.hideResult !== resultKey(st);
+    cbtn.hidden = waiting || onCover;
     $('cancelMove').hidden = !waiting;
     $('newGame').hidden = st.over;
     const fresh = notStarted(st);
@@ -1802,6 +1913,7 @@
       S[key] = val;
       save();
       if (key === 'theme') { render(); return; }
+      if (key === 'sound') { if (val) SFX.join(); render(); return; }
       if (key === 'opp') { Lc.score = { 1: 0, 2: 0, d: 0 }; Lc.starter = 2; newLocal(); return; }
       // Правила: на экране игры они перезапускают партию, в лобби — ждут новой.
       if (R.route !== 'play') { render(); return; }
@@ -1831,6 +1943,8 @@
     else if (act === 'help') openHelp();
     else if (act === 'help-close') $('helpBox').close();
     else if (act === 'reveal' && Lc.phase === 'handoff') { Lc.phase = 'pick2'; render(); }
+    else if (act === 'again') confirmMove();
+    else if (act === 'see-board') { const st = curSt(); if (st) { O.hideResult = resultKey(st); render(); } }
     else if (act === 'redo' && Lc.phase === 'handoff') { Lc.phase = 'pick1'; Lc.pending1 = null; resetUi(); render(); }
     else if (act === 'guest') { O.guest = true; go('play'); }
     else if (act === 'signout') {

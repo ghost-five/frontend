@@ -600,3 +600,46 @@ input:focus { outline: 0; border-color: var(--brand); background: var(--surface)
   content: ""; position: absolute; inset: 2px; border-radius: 4px; pointer-events: none;
   border: 1.5px dashed var(--brand);
 }
+
+/* ---------- Итог партии ---------- */
+.cover.finish { backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); background: color-mix(in srgb, var(--bg) 62%, transparent); }
+.result {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 14px;
+  padding: 26px 30px; border-radius: var(--r-lg); max-width: 420px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border: 1px solid var(--rule); box-shadow: var(--shadow-lg);
+  animation: rise .5s cubic-bezier(.2, 1.3, .35, 1) both;
+}
+.result.w1 { --pc: var(--p1); }
+.result.w2 { --pc: var(--p2); }
+.result.won { border-color: color-mix(in srgb, var(--pc) 55%, var(--rule)); }
+.result.won::before {
+  content: ""; position: absolute; inset: -2px; border-radius: inherit; pointer-events: none;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--pc) 60%, transparent), 0 0 40px -6px color-mix(in srgb, var(--pc) 55%, transparent);
+  animation: halo 2.2s ease-in-out infinite;
+}
+.result h2 {
+  font-family: var(--display); font-weight: 500; font-size: clamp(19px, 3.6vw, 25px);
+  text-align: center; text-wrap: balance; margin: 0;
+}
+.result.won h2 { color: var(--pc); }
+.result.lost h2 { color: var(--muted); }
+.result .tally {
+  margin: 0; font-family: var(--mono); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.result .btn { min-width: 190px; }
+
+/* Искры разлетаются из центра карточки. */
+.sparks { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+.sparks i {
+  position: absolute; left: 50%; top: 46%; width: 8px; height: 8px; margin: -4px 0 0 -4px;
+  border-radius: 2px; background: var(--pc, var(--brand)); opacity: 0;
+  animation: spark 1.1s ease-out var(--t, 0s) 2 both;
+}
+@keyframes spark {
+  0% { opacity: 0; transform: rotate(var(--a)) translateY(0) scale(.5); }
+  12% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(var(--a)) translateY(calc(var(--d) * -1)) scale(.25); }
+}
+@keyframes rise { from { opacity: 0; transform: translateY(22px) scale(.9); } }
+@keyframes halo { 50% { opacity: .45; } }
