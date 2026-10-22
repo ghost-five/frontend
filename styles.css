@@ -30,6 +30,7 @@
   --r: 14px;
   --r-lg: 20px;
   --display: "Unbounded", "Golos Text", system-ui, sans-serif;
+  --wordmark: "Space Grotesk", "Unbounded", system-ui, sans-serif;
   --body: "Golos Text", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
   color-scheme: light;
@@ -92,15 +93,14 @@ h1, h2, h3 { margin: 0; }
 }
 .brand {
   display: flex; align-items: center; gap: 9px; border: 0; background: none; padding: 0; cursor: pointer;
-  font-family: var(--display); font-weight: 700; font-size: 16px; letter-spacing: -0.01em; white-space: nowrap;
+  font-family: var(--wordmark); font-weight: 700; font-size: 18px; letter-spacing: -0.02em; white-space: nowrap;
+  color: var(--ink);
 }
 .brand .mark {
   width: 22px; height: 22px; border-radius: 7px; flex: none;
   background: linear-gradient(140deg, var(--p1), var(--p2));
   box-shadow: inset 0 1px 0 rgb(255 255 255 / .3);
 }
-.brand .o1 { color: var(--p1); }
-.brand .o2 { color: var(--p2); }
 .tabs { display: flex; gap: 2px; margin-inline: auto; background: var(--surface-2); border: 1px solid var(--rule); border-radius: 999px; padding: 3px; }
 .tab {
   position: relative; border: 0; background: none; cursor: pointer; color: var(--muted);
@@ -228,13 +228,12 @@ input:focus { outline: 0; border-color: var(--brand); background: var(--surface)
 
 /* ---------- Вход ---------- */
 
-.screen-auth { align-items: center; gap: 26px; padding-top: max(24px, 6vh); }
-.hero { display: flex; flex-direction: column; gap: 8px; align-items: center; text-align: center; max-width: 36ch; }
-.hero p { max-width: 30ch; }
-.hero h1 { font-family: var(--display); font-weight: 700; font-size: clamp(27px, 7vw, 42px); letter-spacing: -0.02em; }
-.hero .o1 { color: var(--p1); }
-.hero .o2 { color: var(--p2); }
-.hero p { margin: 0; color: var(--muted); text-wrap: balance; }
+.screen-auth { align-items: center; gap: 26px; padding-top: max(24px, 8vh); }
+.hero { display: flex; flex-direction: column; gap: 8px; align-items: center; text-align: center; }
+.hero h1 {
+  font-family: var(--wordmark); font-weight: 700; font-size: clamp(38px, 9vw, 60px);
+  letter-spacing: -0.035em; color: var(--ink);
+}
 .auth-card { width: 100%; max-width: 420px; gap: 16px; padding: 22px; border-radius: var(--r-lg); box-shadow: var(--shadow-lg); }
 .auth-card .card-title { font-family: var(--display); font-size: 19px; letter-spacing: -0.01em; text-transform: none; color: var(--ink); font-weight: 500; }
 .seg.wide { display: grid; grid-template-columns: 1fr 1fr; }

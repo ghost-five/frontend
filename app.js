@@ -800,7 +800,7 @@
   }
   function shareLink() {
     if (!O.code || !navigator.share) return copyLink();
-    navigator.share({ title: 'Призрачная пятёрка', text: 'Сыграем? Код партии ' + O.code, url: gameLink(O.code) }).catch(() => {});
+    navigator.share({ title: 'Ghost Five', text: 'Сыграем? Код партии ' + O.code, url: gameLink(O.code) }).catch(() => {});
   }
 
   // ---------- Rendering: game ----------
