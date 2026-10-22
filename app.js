@@ -96,7 +96,9 @@
   const signedIn = () => (!!O.myId && !O.recovery) || O.guest;
   function go(route) {
     if (!ROUTES.includes(route)) route = signedIn() ? 'play' : 'auth';
-    if (route !== 'game' && R.route === 'game') closeGame();
+    // Открытая партия и есть раздел «По сети»: уход в другой раздел её не закрывает,
+    // ходы соперника продолжают приходить. Выйти к списку можно кнопкой «Все партии».
+    if (route === 'online' && O.code) route = 'game';
     const was = R.route;
     R.route = route;
     if (was !== route) resetUi();
@@ -118,8 +120,10 @@
 
   const curSt = () => (online() ? O.st : Lc.st);
   const curCfg = () => (online() ? (O.game ? O.game.cfg : pickCfg(S)) : Lc.cfg);
-  const curLooks = () => (online() && O.game && O.game.looks ? O.game.looks : S.look);
-  const lookOf = (p) => curLooks()[p] || S.look[p];
+  // Вид фишек у каждого свой: слот 1 — всегда «мои», слот 2 — «соперника»,
+  // поэтому для второго игрока места меняются местами.
+  const slotOf = (p) => (inOnlineGame() && mySeat() === 2 ? 3 - p : p);
+  const lookOf = (p) => S.look[slotOf(p)] || S.look[1];
   const colorOf = (p) => COLORS.find((c) => c.id === lookOf(p).color) || COLORS[0];
   const capWord = (s) => s[0].toUpperCase() + s.slice(1);
   // Русское склонение после числа: 1 победа, 2 победы, 5 побед.
@@ -377,7 +381,6 @@
     for (let k = 0; k < 6; k++) s += al[(Math.random() * al.length) | 0];
     return s;
   }
-  function otherFreeColor(taken) { return (COLORS.find((x) => x.id !== taken && x.id !== 'graphite') || COLORS[1]).id; }
   function gameLink(code) { return siteUrl() + '?g=' + code; }
   function setUrlCode(code) {
     try {
@@ -448,6 +451,7 @@
     O.profile = undefined;
     O.recovery = false;
     stopHome();
+    closeGame();
     go('auth');
   }
   async function loadProfile() {
@@ -650,11 +654,10 @@
     O.creating = true; O.homeMsg = ''; render();
     const cfg = pickCfg(S);
     const st = E.make(cfg, 1, 1);
-    const mine = { color: S.look[1].color, shape: S.look[1].shape };
-    const other = { color: S.look[2].color !== mine.color ? S.look[2].color : otherFreeColor(mine.color), shape: S.look[2].shape };
     for (let t = 0; t < 5; t++) {
       const code = genCode();
-      const row = { code, p1: O.myId, status: 'waiting', cfg, looks: { 1: mine, 2: other }, state: st, score: { 1: 0, 2: 0, d: 0 } };
+      // looks остаётся в схеме, но на экран уже не влияет: каждый красит фишки у себя.
+      const row = { code, p1: O.myId, status: 'waiting', cfg, looks: clone(S.look), state: st, score: { 1: 0, 2: 0, d: 0 } };
       if (inviteeId) row.invitee = inviteeId;
       const { error } = await sb.from('games').insert(row);
       if (!error) { O.creating = false; openGame(code, false); return; }
@@ -670,7 +673,7 @@
   async function deleteGame(code) {
     const { error } = await sb.from('games').delete().eq('code', code);
     if (error) { O.homeMsg = O.msg = 'Не удалось удалить партию: ' + errText(error); render(); return; }
-    if (O.code === code) { go('online'); return; }
+    if (O.code === code) { closeGame(); go('online'); return; }
     refreshHome();
     render();
   }
@@ -749,10 +752,7 @@
 
   async function joinGame() {
     O.joining = true; O.msg = ''; render();
-    const hostColor = O.game && O.game.looks && O.game.looks[1] ? O.game.looks[1].color : 'cobalt';
-    const mine = { color: S.look[1].color, shape: S.look[1].shape };
-    if (mine.color === hostColor) mine.color = otherFreeColor(hostColor);
-    const { data, error } = await sb.rpc('join_game', { g: O.code, my_look: mine });
+    const { data, error } = await sb.rpc('join_game', { g: O.code, my_look: clone(S.look[1]) });
     O.joining = false;
     if (gameErr(error, 'Не удалось сесть за стол')) return;
     if (!data) O.msg = 'Сесть за этот стол не получилось: место уже занято или приглашение было не вам.';
@@ -871,17 +871,6 @@
     const { error } = await sb.from('games').update({ cfg, state: st2, rated: false })
       .eq('code', code).eq('state->>gameNo', String(st.gameNo));
     if (gameErr(error, 'Не удалось начать новую партию')) return;
-    fetchGame();
-  }
-
-  async function saveMyLook(cur) {
-    const me = mySeat(), code = O.code;
-    if (!O.game || !me) return;
-    const looks = Object.assign({}, O.game.looks, { [me]: cur });
-    O.game = Object.assign({}, O.game, { looks });
-    render();
-    const { error } = await sb.from('games').update({ looks }).eq('code', code);
-    if (gameErr(error, 'Не удалось сохранить вид фишек')) return;
     fetchGame();
   }
 
@@ -1597,28 +1586,30 @@
   }
 
   function renderLooks() {
-    let blocks;
-    // Раздел «Вид» открыт поверх партии: там настраиваются фишки этой партии, а не домашние.
-    const isOnline = inOnlineGame(), me = mySeat();
-    if (!isOnline) {
-      const nm = names();
-      blocks = [{ p: 1, label: nm[1], look: S.look[1], block: null }, { p: 2, label: nm[2], look: S.look[2], block: null }];
+    // Слот 1 — свои фишки, слот 2 — соперника. Соперник у себя видит собственный выбор.
+    const isOnline = inOnlineGame();
+    let labels;
+    if (isOnline) {
+      const foeId = mySeat() === 1 ? O.game.p2 : O.game.p1;
+      const foe = foeId ? nameOf(foeId) : '';
+      labels = { 1: 'Ваши фишки', 2: foe && foe !== 'Игрок' ? 'Фишки: ' + foe : 'Фишки соперника' };
     } else {
-      const other = O.game.looks[3 - me];
-      blocks = [{ p: me, label: 'Ваши фишки', look: O.game.looks[me] || S.look[1], block: other ? other.color : null }];
+      const nm = names();
+      labels = { 1: nm[1], 2: nm[2] };
     }
-    const key = JSON.stringify(blocks) + isOnline;
+    const blocks = [{ slot: 1, label: labels[1], look: S.look[1] }, { slot: 2, label: labels[2], look: S.look[2] }];
+    const key = JSON.stringify(blocks);
     const host = $('looks');
     if (host.dataset.key === key) return;
     host.dataset.key = key;
     host.innerHTML = blocks.map((bk) =>
-      '<div class="look" data-p="' + bk.p + '">' +
+      '<div class="look" data-slot="' + bk.slot + '">' +
         '<span class="look-name"></span>' +
         '<div class="swatches" role="group" aria-label="Цвет">' +
-          COLORS.map((c) => '<button type="button" class="swatch" data-color="' + c.id + '" style="--sw: var(--c-' + c.id + ')" title="' + c.name + '" aria-label="' + c.name + '" aria-pressed="' + (bk.look.color === c.id) + '"' + (bk.block === c.id ? ' disabled' : '') + '></button>').join('') +
+          COLORS.map((c) => '<button type="button" class="swatch" data-color="' + c.id + '" style="--sw: var(--c-' + c.id + ')" title="' + c.name + '" aria-label="' + c.name + '" aria-pressed="' + (bk.look.color === c.id) + '"></button>').join('') +
         '</div>' +
         '<div class="shapes" role="group" aria-label="Фигура">' +
-          SHAPES.map((s) => '<button type="button" class="shp" data-shape="' + s.id + '" title="' + s.name + '" aria-label="' + s.name + '" aria-pressed="' + (bk.look.shape === s.id) + '"><span class="stone p' + bk.p + ' sh-' + s.id + '"></span></button>').join('') +
+          SHAPES.map((s) => '<button type="button" class="shp" data-shape="' + s.id + '" title="' + s.name + '" aria-label="' + s.name + '" aria-pressed="' + (bk.look.shape === s.id) + '"><span class="stone sh-' + s.id + '" style="--pc: var(--c-' + bk.look.color + ')"></span></button>').join('') +
         '</div>' +
       '</div>'
     ).join('');
@@ -1629,25 +1620,16 @@
   $('looks').addEventListener('click', (e) => {
     const box = e.target.closest('.look');
     const sw = e.target.closest('.swatch'), shp = e.target.closest('.shp');
-    if (!box || (!sw && !shp) || (sw && sw.disabled)) return;
-    const p = +box.dataset.p;
-    if (!inOnlineGame()) {
-      const o = 3 - p;
-      if (sw) {
-        const c = sw.dataset.color;
-        if (S.look[o].color === c) S.look[o].color = S.look[p].color;
-        S.look[p].color = c;
-      } else S.look[p].shape = shp.dataset.shape;
-      save(); render();
-      return;
-    }
-    const me = mySeat();
-    const base = O.game.looks[me] || S.look[1];
-    const cur = { color: base.color, shape: base.shape };
-    if (sw) cur.color = sw.dataset.color; else cur.shape = shp.dataset.shape;
-    S.look[1] = { color: cur.color, shape: cur.shape };
+    if (!box || (!sw && !shp)) return;
+    const slot = +box.dataset.slot, other = 3 - slot;
+    if (sw) {
+      const c = sw.dataset.color;
+      // Цвета не должны совпадать: занятый цвет уезжает в соседний слот.
+      if (S.look[other].color === c) S.look[other].color = S.look[slot].color;
+      S.look[slot].color = c;
+    } else S.look[slot].shape = shp.dataset.shape;
     save();
-    saveMyLook(cur);
+    render();
   });
 
   document.querySelectorAll('.seg[data-key]').forEach((seg) => {
@@ -1745,7 +1727,7 @@
     $('joinCode').value = '';
     openGame(code, true);
   });
-  $('toLobby').addEventListener('click', () => go('online'));
+  $('toLobby').addEventListener('click', () => { closeGame(); go('online'); });
   $('confirm').addEventListener('click', confirmMove);
   $('cancelMove').addEventListener('click', cancelMove);
   $('newGame').addEventListener('click', () => { if (!online()) newLocal(); });
