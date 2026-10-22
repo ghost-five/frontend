@@ -391,6 +391,87 @@
     } else localSeq(p, m);
   }
 
+  // ---------- Меню действий на клетке ----------
+  // Правая кнопка (или долгое нажатие) показывает, что можно сделать именно с этой клеткой.
+  function cellMenuItems(st, cfg, p, i) {
+    const out = [];
+    const can = (kind) => E.validTarget(st, cfg, p, i, kind);
+    if (can('place')) out.push({ kind: 'place', label: 'Поставить фишку' });
+    if (cfg.shots && E.canShoot(st, cfg, p) && can('shot')) {
+      out.push({ kind: 'shot', label: 'Выстрелить сюда', note: 'осталось ' + st.shots[p] });
+    }
+    if (can('anchor')) out.push({ kind: 'anchor', label: st.cells[i] === p ? 'Сделать эту фишку якорем' : 'Поставить якорь' });
+    if (can('moveAnchor')) out.push({ kind: 'moveAnchor', label: 'Сдвинуть якорь сюда', note: st.cells[i] === 3 ? 'проломит стену' : '' });
+    if (E.canUnanchor(st, cfg, p)) {
+      out.push({ take: true, label: ui.take ? 'Не забирать якорь' : 'Забрать якорь', note: 'без хода', on: ui.take });
+    }
+    return out;
+  }
+
+  function closeCellMenu() {
+    const box = $('cellMenu');
+    if (!box.hidden) { box.hidden = true; box.innerHTML = ''; }
+  }
+
+  function openCellMenu(i, x, y) {
+    const st = curSt(), cfg = curCfg(), p = picker();
+    closeCellMenu();
+    if (!st || st.over || busy || !p || !isHuman(p)) return;
+    const items = cellMenuItems(st, cfg, p, i);
+    if (!items.length) return;
+    const box = $('cellMenu');
+    box.innerHTML = '<div class="mhead">Клетка ' + esc(cellName(st, i)) + '</div>' +
+      items.map((it, k) => '<button type="button" role="menuitem" data-k="' + k + '"' + (it.on ? ' class="on"' : '') + '>' +
+        '<span>' + esc(it.label) + '</span>' + (it.note ? '<small>' + esc(it.note) + '</small>' : '') + '</button>').join('');
+    box.dataset.cell = String(i);
+    menuItems = items;
+    box.hidden = false;
+    // Прижимаем к курсору, но не даём уехать за край экрана.
+    const r = box.getBoundingClientRect();
+    const left = Math.min(x, window.innerWidth - r.width - 8);
+    const top = Math.min(y, window.innerHeight - r.height - 8);
+    box.style.left = Math.max(8, left) + 'px';
+    box.style.top = Math.max(8, top) + 'px';
+    const first = box.querySelector('button');
+    if (first) first.focus();
+  }
+
+  let menuItems = [];
+  function chooseMove(i, kind) {
+    const st = curSt(), cfg = curCfg(), p = picker();
+    if (!st || !p || !isHuman(p) || busy || !E.validTarget(st, cfg, p, i, kind)) return;
+    ui.action = kind;
+    ui.sel = i;
+    render();
+  }
+
+  boardEl.addEventListener('contextmenu', (e) => {
+    const c = e.target.closest('.cell');
+    if (!c) return;
+    e.preventDefault();
+    openCellMenu(+c.dataset.i, e.clientX, e.clientY);
+  });
+  $('cellMenu').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    const it = menuItems[+b.dataset.k];
+    const i = +$('cellMenu').dataset.cell;
+    closeCellMenu();
+    if (!it) return;
+    if (it.take) {
+      const st = curSt(), cfg = curCfg(), p = picker();
+      if (st && p && E.canUnanchor(st, cfg, p)) { ui.take = !ui.take; render(); }
+      return;
+    }
+    chooseMove(i, it.kind);
+  });
+  document.addEventListener('pointerdown', (e) => {
+    if (!$('cellMenu').hidden && !e.target.closest('#cellMenu')) closeCellMenu();
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeCellMenu(); });
+  window.addEventListener('scroll', closeCellMenu, true);
+  window.addEventListener('resize', closeCellMenu);
+
   // ---------- Online: helpers ----------
   function errText(error) {
     const m = (error && (error.message || '')) + ' ' + (error && error.code ? error.code : '');

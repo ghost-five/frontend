@@ -736,3 +736,25 @@ input:focus { outline: 0; border-color: var(--brand); background: var(--surface)
 :root[data-theme="dark"][data-palette="sunset"] { --brand: #FF8A4C; --brand-2: #FFB169; --brand-ink: #1A0C04; --board: #2E2219; --cell: #1E160F; --cell-hover: #2A1F16; }
 :root[data-theme="dark"][data-palette="violet"] { --brand: #9B7BFF; --brand-2: #C58CFF; --brand-ink: #0D0719; --board: #241E36; --cell: #181329; --cell-hover: #231C3A; }
 :root[data-theme="dark"][data-palette="mono"] { --brand: #8A97B5; --brand-2: #B4BFD6; --brand-ink: #0B0F17; --board: #232833; --cell: #171B23; --cell-hover: #222733; }
+
+/* ---------- Меню действий по правому клику ---------- */
+.cellmenu {
+  position: fixed; z-index: 40; min-width: 210px; padding: 6px;
+  background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r);
+  box-shadow: var(--shadow-lg); display: flex; flex-direction: column; gap: 2px;
+  animation: popin .12s ease-out;
+}
+.cellmenu .mhead {
+  padding: 6px 10px 7px; font-family: var(--mono); font-size: 11px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--rule); margin-bottom: 4px;
+}
+.cellmenu button {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%;
+  padding: 9px 10px; border: 0; border-radius: var(--r-sm); background: none; color: var(--ink);
+  font-size: 14px; text-align: left; cursor: pointer;
+}
+.cellmenu button:hover { background: var(--surface-2); }
+.cellmenu button:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.cellmenu button.on { color: var(--brand); font-weight: 600; }
+.cellmenu button small { color: var(--muted); font-size: 12px; }
+@keyframes popin { from { opacity: 0; transform: scale(.94); } }
