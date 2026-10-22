@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Призрачная пятёрка</title>
+<meta name="description" content="Пять в ряд с тайными ходами, исчезающими фишками и игрой с друзьями по сети">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23151B2A'/%3E%3Ccircle cx='11' cy='16' r='6' fill='%232F4BD8'/%3E%3Cpath d='M21 9l7 7-7 7-7-7z' fill='%23E0544A'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <h1>Призрачная пят<span class="o1">ё</span>рк<span class="o2">а</span></h1>
+    <p>Пять в ряд с тайными ходами, исчезающими фишками и игрой с друзьями по сети</p>
+  </header>
+
+  <main class="layout">
+    <section class="play">
+      <!-- Sign in / sign up -->
+      <div class="lobby" id="authCard" hidden>
+        <h2 id="authTitle">Вход</h2>
+        <p class="lobby-note" id="authNote" hidden></p>
+
+        <form class="authform" id="loginForm" data-view="login" hidden>
+          <div class="field"><label for="loginEmail">Email</label><input id="loginEmail" type="email" autocomplete="email" required></div>
+          <div class="field"><label for="loginPass">Пароль</label><input id="loginPass" type="password" autocomplete="current-password" required></div>
+          <button class="btn primary" type="submit">Войти</button>
+          <p><button class="linkbtn" type="button" data-auth="forgot">Забыли пароль?</button></p>
+          <p>Нет аккаунта? <button class="linkbtn" type="button" data-auth="signup">Зарегистрироваться</button></p>
+        </form>
+
+        <form class="authform" id="signupForm" data-view="signup" hidden>
+          <div class="field"><label for="signNick">Ник</label><input id="signNick" maxlength="20" autocomplete="nickname" required>
+            <p class="fhint" id="nickHint">3–20 символов: буквы, цифры, точка, дефис, подчёркивание. По нику вас найдут друзья.</p></div>
+          <div class="field"><label for="signEmail">Email</label><input id="signEmail" type="email" autocomplete="email" required>
+            <p class="fhint">Нужен для входа и восстановления пароля. Другие игроки его не видят.</p></div>
+          <div class="field"><label for="signPass">Пароль</label><input id="signPass" type="password" autocomplete="new-password" minlength="8" required>
+            <p class="fhint">Не короче 8 символов.</p></div>
+          <button class="btn primary" type="submit">Создать аккаунт</button>
+          <p>Уже есть аккаунт? <button class="linkbtn" type="button" data-auth="login">Войти</button></p>
+        </form>
+
+        <form class="authform" id="confirmForm" data-view="confirm" hidden>
+          <p id="confirmText"></p>
+          <div class="field"><label for="confirmCode">Код из письма</label><input id="confirmCode" class="codein" inputmode="numeric" autocomplete="one-time-code" maxlength="10" required></div>
+          <button class="btn primary" type="submit">Подтвердить</button>
+          <p><button class="linkbtn" type="button" data-auth="resend">Отправить письмо ещё раз</button> · <button class="linkbtn" type="button" data-auth="login">Ко входу</button></p>
+        </form>
+
+        <form class="authform" id="forgotForm" data-view="forgot" hidden>
+          <p>Пришлём на почту код для смены пароля.</p>
+          <div class="field"><label for="forgotEmail">Email</label><input id="forgotEmail" type="email" autocomplete="email" required></div>
+          <button class="btn primary" type="submit">Прислать код</button>
+          <p><button class="linkbtn" type="button" data-auth="login">Ко входу</button></p>
+        </form>
+
+        <form class="authform" id="resetForm" data-view="reset" hidden>
+          <p id="resetText"></p>
+          <div class="field" id="resetCodeField"><label for="resetCode">Код из письма</label><input id="resetCode" class="codein" inputmode="numeric" autocomplete="one-time-code" maxlength="10"></div>
+          <div class="field"><label for="resetPass">Новый пароль</label><input id="resetPass" type="password" autocomplete="new-password" minlength="8" required></div>
+          <button class="btn primary" type="submit">Сохранить пароль</button>
+          <p id="resetBack"><button class="linkbtn" type="button" data-auth="login">Ко входу</button></p>
+        </form>
+      </div>
+
+      <!-- Signed in: friends, invites, games -->
+      <div class="lobby" id="homeCard" hidden>
+        <div class="home-head">
+          <h2>Привет, <span id="meNick"></span></h2>
+          <div class="whoami"><button class="linkbtn" type="button" data-act="profile">Профиль</button><button class="linkbtn" type="button" data-act="signout">Выйти</button></div>
+        </div>
+        <p class="lobby-note" id="homeNote" hidden></p>
+
+        <section class="hsec" id="invitesSec" hidden>
+          <h3>Приглашения</h3>
+          <ul class="glist" id="invites"></ul>
+        </section>
+
+        <section class="hsec">
+          <h3>Мои партии</h3>
+          <ul class="glist" id="myGames"></ul>
+          <div class="lobby-row">
+            <button class="btn ghost" id="linkGame" type="button">Партия по ссылке</button>
+            <form id="joinForm">
+              <input id="joinCode" maxlength="8" placeholder="Код партии" autocomplete="off" aria-label="Код партии">
+              <button class="btn ghost" type="submit">Открыть</button>
+            </form>
+          </div>
+          <p class="small">Чтобы сыграть с другом, нажмите «Играть» рядом с ним в списке друзей. Правила партии берутся из настроек справа.</p>
+        </section>
+
+        <section class="hsec">
+          <h3>Друзья</h3>
+          <form id="addFriendForm" class="lobby-row">
+            <input id="friendNick" list="nickSuggest" maxlength="20" placeholder="Ник друга" autocomplete="off" aria-label="Ник друга">
+            <datalist id="nickSuggest"></datalist>
+            <button class="btn ghost" type="submit">Добавить в друзья</button>
+          </form>
+          <p class="small" id="friendMsg"></p>
+          <ul class="glist" id="friends"></ul>
+        </section>
+      </div>
+
+      <!-- Profile -->
+      <div class="lobby" id="profileCard" hidden>
+        <h2>Профиль</h2>
+        <p class="lobby-note" id="profileNote" hidden></p>
+        <form class="authform" id="nickForm">
+          <div class="field"><label for="nickIn">Ник</label>
+            <div class="field-row"><input id="nickIn" maxlength="20" autocomplete="nickname" required><button class="btn primary" type="submit" id="nickBtn">Сохранить</button></div>
+            <p class="fhint">3–20 символов: буквы, цифры, точка, дефис, подчёркивание.</p></div>
+        </form>
+        <form class="authform" id="passForm">
+          <div class="field"><label for="newPass">Новый пароль</label>
+            <div class="field-row"><input id="newPass" type="password" autocomplete="new-password" minlength="8" required><button class="btn ghost" type="submit">Сменить пароль</button></div></div>
+        </form>
+        <p class="small">Email: <span id="meEmail"></span></p>
+        <p id="profileBack"><button class="btn ghost" type="button" data-act="home">Назад</button></p>
+      </div>
+
+      <div class="gamebar" id="gamebar" hidden>
+        <span class="gb-code"><span class="live-dot" id="liveDot" title="Связь с сервером"></span>Партия <b id="gbCode"></b></span>
+        <button class="chip" type="button" data-act="share" id="shareBtn" hidden>Отправить ссылку</button>
+        <button class="chip" type="button" data-act="copy" id="copyBtn">Скопировать ссылку</button>
+        <button class="chip" type="button" id="toLobby">Все партии</button>
+        <span class="gb-note" id="gbNote" hidden></span>
+      </div>
+
+      <div class="status" id="statusRow">
+        <span class="round" id="round">Раунд 1</span>
+        <span id="statusText">Выберите клетку</span>
+      </div>
+      <p class="msg" id="msg" hidden></p>
+      <div class="board-wrap" id="boardWrap">
+        <div class="board" id="board" role="grid" aria-label="Игровое поле"></div>
+        <div class="cover" id="cover" hidden><div class="cover-inner"></div></div>
+      </div>
+      <div class="tools" id="tools" hidden>
+        <span class="label">Действие</span>
+        <button class="chip" id="actPlace" type="button">Поставить фишку</button>
+        <button class="chip" id="actShot" type="button">Выстрел</button>
+        <button class="chip" id="anchorBtn" type="button">Якорь</button>
+      </div>
+      <div class="actions" id="actions">
+        <button class="btn primary" id="confirm" type="button" disabled>Сделать ход</button>
+        <button class="btn ghost" id="newGame" type="button">Новая партия</button>
+      </div>
+    </section>
+
+    <aside class="side">
+      <div class="players" id="players">
+        <div class="pcard p1" id="card1">
+          <div class="pname"><span class="ico"><span class="stone p1" id="ico1"></span></span><span id="name1">Вы</span></div>
+          <div class="pmeta" id="meta1"></div>
+          <div class="pmeta" id="extra1"></div>
+          <div class="pwins"><span id="wins1">0</span><small>побед</small></div>
+        </div>
+        <div class="pcard p2" id="card2">
+          <div class="pname"><span class="ico"><span class="stone p2" id="ico2"></span></span><span id="name2">Бот</span></div>
+          <div class="pmeta" id="meta2"></div>
+          <div class="pmeta" id="extra2"></div>
+          <div class="pwins"><span id="wins2">0</span><small>побед</small></div>
+        </div>
+      </div>
+      <div class="draws" id="draws">Ничьих: 0</div>
+
+      <div class="panel">
+        <h2>Партия</h2>
+        <div class="setting"><div class="row"><span>Соперник</span>
+          <div class="seg" data-key="opp" data-type="str"><button type="button" data-v="bot">Бот</button><button type="button" data-v="friend">Рядом</button><button type="button" data-v="online">По сети</button></div>
+        </div></div>
+        <div class="setting" id="set-size"><div class="row"><span>Поле</span>
+          <div class="seg" data-key="size" data-type="num"><button type="button" data-v="11">11</button><button type="button" data-v="13">13</button><button type="button" data-v="15">15</button></div>
+        </div></div>
+      </div>
+
+      <div class="panel">
+        <h2>Механики</h2>
+        <div class="setting" id="set-secret"><div class="row"><span>Тайный ход</span>
+          <div class="seg" data-key="secret" data-type="bool"><button type="button" data-v="1">Вкл</button><button type="button" data-v="0">Выкл</button></div></div>
+          <p class="hint">Оба выбирают ход одновременно. Выбрали одну клетку: она сгорает и становится стеной.</p>
+        </div>
+        <div class="setting" id="set-wallTtl"><div class="row"><span>Стены остывают</span>
+          <div class="seg" data-key="wallTtl" data-type="num"><button type="button" data-v="0">Никогда</button><button type="button" data-v="3">3</button><button type="button" data-v="5">5</button><button type="button" data-v="8">8</button></div></div>
+          <p class="hint">Через сколько раундов стена исчезает. Нужен тайный ход.</p>
+        </div>
+        <div class="setting" id="set-mem"><div class="row"><span>Короткая память</span>
+          <div class="seg" data-key="mem" data-type="num"><button type="button" data-v="0">Выкл</button><button type="button" data-v="6">6</button><button type="button" data-v="7">7</button><button type="button" data-v="8">8</button><button type="button" data-v="10">10</button></div></div>
+          <p class="hint">Сколько ваших фишек может быть на поле. Ставите лишнюю, исчезает самая старая.</p>
+        </div>
+        <div class="setting" id="set-anchor"><div class="row"><span>Якорь</span>
+          <div class="seg" data-key="anchor" data-type="bool"><button type="button" data-v="1">Вкл</button><button type="button" data-v="0">Выкл</button></div></div>
+          <p class="hint">Одна фишка за партию, которая никогда не исчезает и не считается в лимит. Нужна короткая память.</p>
+        </div>
+        <div class="setting" id="set-shots"><div class="row"><span>Выстрелы</span>
+          <div class="seg" data-key="shots" data-type="num"><button type="button" data-v="0">Выкл</button><button type="button" data-v="1">1</button><button type="button" data-v="2">2</button><button type="button" data-v="3">3</button></div></div>
+          <p class="hint">Вместо хода сбейте фишку соперника. С тайным ходом можно стрелять в пустую клетку, угадывая, куда он пойдёт.</p>
+        </div>
+        <div class="setting" id="set-capture"><div class="row"><span>Захват пар</span>
+          <div class="seg" data-key="capture" data-type="bool"><button type="button" data-v="1">Вкл</button><button type="button" data-v="0">Выкл</button></div></div>
+          <p class="hint">Зажмите ровно две фишки соперника своими с обеих сторон, и они исчезнут. 5 захваченных пар тоже победа.</p>
+        </div>
+        <p class="note" id="rulesNote">Смена правил сразу начинает новую партию.</p>
+      </div>
+
+      <div class="panel">
+        <h2>Внешний вид</h2>
+        <div id="looks"></div>
+      </div>
+
+      <div class="panel" id="logPanel">
+        <h2>Ход игры</h2>
+        <ol class="log" id="log"></ol>
+      </div>
+
+      <div class="panel">
+        <h2>Как играть</h2>
+        <div class="rules">
+          <p><strong>Цель:</strong> 5 своих фишек подряд по горизонтали, вертикали или диагонали.</p>
+          <p><strong>Ход:</strong> нажмите на клетку, чтобы выбрать её, и нажмите ещё раз или кнопку «Сделать ход».</p>
+          <p><strong>Цифра в углу клетки</strong> показывает, через сколько ваших ходов исчезнет фишка или через сколько раундов остынет стена. Фишка в пунктирной рамке исчезнет следующим ходом. Знак ∞ отмечает якорь.</p>
+          <p><strong>По сети</strong> тайные ходы шифруются: соперник видит только, что вы сходили, а сам ход открывается, когда сходили оба.</p>
+        </div>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<script src="config.js"></script>
+<script src="vendor/supabase.js"></script>
+<script src="engine.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
