@@ -134,15 +134,18 @@
     report_result: ({ g }, db) => {
       const game = db.games.find((x) => x.code === g);
       if (!game || game.rated || !game.p2 || !game.state || !game.state.over) return null;
-      const w = game.state.winner || 0;
+      // Как в базе: рейтинг меняется один раз за партию, когда кто-то взял два раунда.
+      const sc = game.score || {};
+      const w = (+sc['1'] || 0) >= 2 ? 1 : (+sc['2'] || 0) >= 2 ? 2 : 0;
+      if (!w) return null;
       const a = db.profiles.find((x) => x.id === game.p1), b = db.profiles.find((x) => x.id === game.p2);
       if (!a || !b) return null;
       const e1 = 1 / (1 + Math.pow(10, ((b.rating || 1000) - (a.rating || 1000)) / 400));
-      const s1 = w === 1 ? 1 : w === 2 ? 0 : 0.5;
+      const s1 = w === 1 ? 1 : 0;
       a.rating = Math.max(100, Math.round((a.rating || 1000) + 24 * (s1 - e1)));
       b.rating = Math.max(100, Math.round((b.rating || 1000) + 24 * ((1 - s1) - (1 - e1))));
-      a.wins = (a.wins || 0) + (w === 1 ? 1 : 0); a.losses = (a.losses || 0) + (w === 2 ? 1 : 0); a.draws = (a.draws || 0) + (w === 0 ? 1 : 0);
-      b.wins = (b.wins || 0) + (w === 2 ? 1 : 0); b.losses = (b.losses || 0) + (w === 1 ? 1 : 0); b.draws = (b.draws || 0) + (w === 0 ? 1 : 0);
+      a.wins = (a.wins || 0) + (w === 1 ? 1 : 0); a.losses = (a.losses || 0) + (w === 2 ? 1 : 0);
+      b.wins = (b.wins || 0) + (w === 2 ? 1 : 0); b.losses = (b.losses || 0) + (w === 1 ? 1 : 0);
       game.rated = true;
       return w;
     },

@@ -311,8 +311,9 @@ begin
 end
 $$;
 
--- Итог партии: рейтинг считает сама база по сохранённому состоянию,
+-- Итог партии: рейтинг считает сама база по сохранённому счёту раундов,
 -- клиент только сообщает, что партия окончена. Флаг rated не даёт засчитать её дважды.
+-- Партия идёт до двух выигранных раундов, поэтому ничьих в рейтинге больше нет.
 alter table public.games add column if not exists rated boolean not null default false;
 
 create or replace function public.report_result(g text)
@@ -324,11 +325,14 @@ as $$
 declare
   rec public.games;
   w int;
+  won1 int;
+  won2 int;
   r1 int;
   r2 int;
   exp1 numeric;
   s1 numeric;
   k constant int := 24;
+  need constant int := 2;
 begin
   select * into rec from public.games where code = g for update;
   if not found then return null; end if;
@@ -340,26 +344,29 @@ begin
   perform set_config('app.rating', 'on', true);
   if coalesce((rec.state ->> 'over')::boolean, false) is not true then return null; end if;
 
-  w := coalesce((rec.state ->> 'winner')::int, 0);
+  -- Партия засчитывается, только когда кто-то взял нужное число раундов.
+  won1 := coalesce((rec.score ->> '1')::int, 0);
+  won2 := coalesce((rec.score ->> '2')::int, 0);
+  w := case when won1 >= need then 1 when won2 >= need then 2 else 0 end;
+  if w = 0 then return null; end if;
+
   select rating into r1 from public.profiles where id = rec.p1;
   select rating into r2 from public.profiles where id = rec.p2;
   if r1 is null or r2 is null then return null; end if;
 
   exp1 := 1.0 / (1.0 + power(10.0, (r2 - r1) / 400.0));
-  s1 := case w when 1 then 1.0 when 2 then 0.0 else 0.5 end;
+  s1 := case w when 1 then 1.0 else 0.0 end;
 
   update public.profiles
      set rating = greatest(100, rating + round(k * (s1 - exp1))::int),
          wins = wins + (case when w = 1 then 1 else 0 end),
-         losses = losses + (case when w = 2 then 1 else 0 end),
-         draws = draws + (case when w = 0 then 1 else 0 end)
+         losses = losses + (case when w = 2 then 1 else 0 end)
    where id = rec.p1;
 
   update public.profiles
      set rating = greatest(100, rating + round(k * ((1.0 - s1) - (1.0 - exp1)))::int),
          wins = wins + (case when w = 2 then 1 else 0 end),
-         losses = losses + (case when w = 1 then 1 else 0 end),
-         draws = draws + (case when w = 0 then 1 else 0 end)
+         losses = losses + (case when w = 1 then 1 else 0 end)
    where id = rec.p2;
 
   update public.games set rated = true where code = g;

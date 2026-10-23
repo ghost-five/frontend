@@ -15,7 +15,11 @@ export async function build() {
   await mkdir(join(stand, 'vendor'), { recursive: true });
   for (const f of ['index.html', 'app.js', 'engine.js', 'styles.css']) await copyFile(join(root, f), join(stand, f));
   await copyFile(join(here, 'mock-supabase.js'), join(stand, 'vendor', 'supabase.js'));
-  await writeFile(join(stand, 'config.js'), "window.GHOST_CONFIG = { supabaseUrl: 'https://stand.local', supabaseKey: 'sb_publishable_stand' };\n");
+  // Паузу перед ходом на стенде по умолчанию выключаем; сценарий может включить её,
+  // положив секунды в localStorage['stand-hold'] до перезагрузки страницы.
+  await writeFile(join(stand, 'config.js'),
+    "window.GHOST_CONFIG = { supabaseUrl: 'https://stand.local', supabaseKey: 'sb_publishable_stand',\n"
+    + "  hold: Number((() => { try { return localStorage.getItem('stand-hold') || 0; } catch (e) { return 0; } })()) };\n");
 }
 
 export async function serve() {

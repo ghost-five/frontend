@@ -7,34 +7,47 @@
 
   const COLORS = [
     { id: 'cobalt', name: 'Кобальт', nom: 'кобальтовые', gen: 'кобальтовых' },
-    { id: 'coral', name: 'Коралл', nom: 'коралловые', gen: 'коралловых' },
-    { id: 'emerald', name: 'Изумруд', nom: 'изумрудные', gen: 'изумрудных' },
-    { id: 'amber', name: 'Янтарь', nom: 'янтарные', gen: 'янтарных' },
-    { id: 'violet', name: 'Фиалка', nom: 'фиолетовые', gen: 'фиолетовых' },
+    { id: 'indigo', name: 'Индиго', nom: 'индиговые', gen: 'индиговых' },
+    { id: 'sky', name: 'Небо', nom: 'небесные', gen: 'небесных' },
     { id: 'teal', name: 'Бирюза', nom: 'бирюзовые', gen: 'бирюзовых' },
+    { id: 'emerald', name: 'Изумруд', nom: 'изумрудные', gen: 'изумрудных' },
+    { id: 'lime', name: 'Лайм', nom: 'лаймовые', gen: 'лаймовых' },
+    { id: 'amber', name: 'Янтарь', nom: 'янтарные', gen: 'янтарных' },
+    { id: 'orange', name: 'Мандарин', nom: 'мандариновые', gen: 'мандариновых' },
+    { id: 'coral', name: 'Коралл', nom: 'коралловые', gen: 'коралловых' },
+    { id: 'crimson', name: 'Вишня', nom: 'вишнёвые', gen: 'вишнёвых' },
     { id: 'rose', name: 'Малина', nom: 'малиновые', gen: 'малиновых' },
-    { id: 'graphite', name: 'Графит', nom: 'графитовые', gen: 'графитовых' }
+    { id: 'plum', name: 'Слива', nom: 'сливовые', gen: 'сливовых' },
+    { id: 'violet', name: 'Фиалка', nom: 'фиолетовые', gen: 'фиолетовых' },
+    { id: 'lemon', name: 'Лимон', nom: 'лимонные', gen: 'лимонных' },
+    { id: 'graphite', name: 'Графит', nom: 'графитовые', gen: 'графитовых' },
+    { id: 'snow', name: 'Белый', nom: 'белые', gen: 'белых' }
   ];
   // a и b — только для кружка-образца в настройках; сами цвета задаёт styles.css.
+  // pair — цвета фишек, которые мы советуем к этой палитре: их подставляет смена палитры.
   const PALETTES = [
-    { id: 'classic', name: 'Классика', a: '#4F6BFF', b: '#8A6BFF' },
-    { id: 'forest', name: 'Лес', a: '#2AA873', b: '#67C993' },
-    { id: 'sunset', name: 'Закат', a: '#E0702F', b: '#F0A14E' },
-    { id: 'violet', name: 'Сумерки', a: '#7C52DC', b: '#B06BE4' },
-    { id: 'mono', name: 'Графит', a: '#5A6782', b: '#8C97AE' }
+    { id: 'classic', name: 'Классика', a: '#4F6BFF', b: '#8A6BFF', pair: ['cobalt', 'coral'] },
+    { id: 'forest', name: 'Лес', a: '#2AA873', b: '#67C993', pair: ['indigo', 'amber'] },
+    { id: 'sunset', name: 'Закат', a: '#E0702F', b: '#F0A14E', pair: ['indigo', 'teal'] },
+    { id: 'violet', name: 'Сумерки', a: '#7C52DC', b: '#B06BE4', pair: ['teal', 'amber'] },
+    { id: 'mono', name: 'Графит', a: '#5A6782', b: '#8C97AE', pair: ['cobalt', 'coral'] }
   ];
   const SHAPES = [
-    { id: 'circle', name: 'Круг' }, { id: 'ring', name: 'Кольцо' }, { id: 'cross', name: 'Крест' },
-    { id: 'square', name: 'Квадрат' }, { id: 'diamond', name: 'Ромб' }, { id: 'star', name: 'Звезда' }
+    { id: 'circle', name: 'Круг' }, { id: 'ring', name: 'Кольцо' }, { id: 'square', name: 'Квадрат' },
+    { id: 'diamond', name: 'Ромб' }, { id: 'triangle', name: 'Треугольник' }, { id: 'hex', name: 'Шестиугольник' },
+    { id: 'pentagon', name: 'Пятиугольник' }, { id: 'cross', name: 'Крест' }, { id: 'star', name: 'Звезда' },
+    { id: 'bolt', name: 'Молния' }, { id: 'moon', name: 'Месяц' }, { id: 'flower', name: 'Цветок' }
   ];
   const ACT_WORD = { place: 'Сделать ход', shot: 'Выстрелить', anchor: 'Поставить якорь', moveAnchor: 'Сдвинуть якорь', magnet: 'Притянуть', unanchor: 'Забрать якорь' };
   const CFG_KEYS = ['size', 'win', 'secret', 'wallTtl', 'mem', 'anchor', 'shots', 'capture', 'timer', 'bank'];
+  // Партия идёт до двух выигранных раундов. Ничейный раунд не засчитывается никому.
+  const MATCH_WINS = 2;
   const NICK_RE = /^[A-Za-zА-Яа-яЁё0-9_.-]{3,20}$/;
   const CODE_RE = /^[A-Z0-9]{4,8}$/;
 
   // ---------- Settings (per browser) ----------
   const S = {
-    opp: 'bot', theme: 'auto', palette: 'classic', logOpen: true, rulesOpen: false, sound: true, volume: 70, hold: 3,
+    opp: 'bot', theme: 'auto', palette: 'classic', logOpen: true, rulesOpen: false, sound: true, volume: 70,
     size: 13, win: 4, secret: true, wallTtl: 5, mem: 8, anchor: true, shots: 1, capture: false, timer: 0, bank: 60,
     look: { 1: { color: 'cobalt', shape: 'circle' }, 2: { color: 'coral', shape: 'diamond' } }
   };
@@ -43,7 +56,7 @@
   try {
     const saved = JSON.parse(lsGet('ghost5-settings') || 'null');
     if (saved && typeof saved === 'object') {
-      for (const k of ['opp', 'theme', 'palette', 'logOpen', 'rulesOpen', 'sound', 'volume', 'hold'].concat(CFG_KEYS)) if (k in saved) S[k] = saved[k];
+      for (const k of ['opp', 'theme', 'palette', 'logOpen', 'rulesOpen', 'sound', 'volume'].concat(CFG_KEYS)) if (k in saved) S[k] = saved[k];
       for (const p of [1, 2]) {
         const l = saved.look && saved.look[p];
         if (l && COLORS.some((c) => c.id === l.color)) S.look[p].color = l.color;
@@ -62,6 +75,8 @@
 
   // ---------- Supabase ----------
   const CONF = window.GHOST_CONFIG || {};
+  // Пауза перед отправкой хода: всегда три секунды. Тестовый стенд выключает её своим config.js.
+  const HOLD = Number.isFinite(Number(CONF.hold)) ? Math.max(0, Number(CONF.hold)) : 3;
   const placeholder = (s) => !s || /ВАШ|YOUR/i.test(s);
   const configured = !placeholder(CONF.supabaseUrl) && !placeholder(CONF.supabaseKey);
   let sb = null;
@@ -204,7 +219,7 @@
   function resultText(w, reason) {
     if (!w) {
       if (reason === 'misses') return 'Ничья: оба пропустили три хода подряд.';
-      return reason === 'both' ? 'Ничья: победа у обоих в одном раунде.' : 'Ничья: поле заполнено.';
+      return reason === 'both' ? 'Ничья: победа у обоих в одном ходе.' : 'Ничья: поле заполнено.';
     }
     const who = names()[w];
     if (reason === 'misses') {
@@ -303,7 +318,8 @@
   }
 
   // ---------- Local play ----------
-  function newLocal() {
+  function newLocal(keepScore) {
+    if (!keepScore || matchWin(Lc.score)) Lc.score = zeroScore();
     Lc.starter = 3 - Lc.starter;
     Lc.cfg = pickCfg(S);
     Lc.st = E.make(Lc.cfg, Lc.starter, 1);
@@ -313,7 +329,16 @@
     render();
     maybeBot();
   }
-  function bumpScore(score, st) { const k = st.winner ? String(st.winner) : 'd'; score[k] = (score[k] || 0) + 1; }
+  // Победитель партии: тот, кто первым взял нужное число раундов. 0 — партия ещё идёт.
+  const matchWin = (score) => (score[1] >= MATCH_WINS ? 1 : score[2] >= MATCH_WINS ? 2 : 0);
+  const zeroScore = () => ({ 1: 0, 2: 0, d: 0 });
+  const curScore = () => (online() ? Object.assign(zeroScore(), O.game && O.game.score) : Lc.score);
+  function bumpScore(score, st) {
+    const k = st.winner ? String(st.winner) : 'd';
+    score[k] = (score[k] || 0) + 1;
+    // Сдача — отказ от всей партии: сопернику достаются и оставшиеся раунды.
+    if (st.winner && st.winReason === 'resign') score[String(st.winner)] = MATCH_WINS;
+  }
   function localRound(m1, m2) {
     const st = Lc.st;
     E.resolveRound(st, Lc.cfg, m1, m2);
@@ -446,7 +471,7 @@
     const st = curSt();
     if (!st) return;
     if (st.over) {
-      if (online()) { if (mySeat()) onlineRematch(); } else newLocal();
+      if (online()) { if (mySeat()) onlineRematch(); } else newLocal(true);
       return;
     }
     const p = picker();
@@ -455,7 +480,7 @@
     const take = ui.take >= 0 && E.canUnanchor(st, cfg, p, ui.take) ? ui.take : false;
     const m = { i: ui.sel, kind: ui.action, anchor: false, take, spent: overSpend(st, cfg) };
     // Пауза перед отправкой: успеть одуматься, если нажал не глядя.
-    const wait = Math.max(0, Number(S.hold) || 0);
+    const wait = HOLD;
     if (wait && timeLeft(st, cfg) > wait + 1) {
       hold = { m, until: Date.now() + wait * 1000, p };
       resetUi();
@@ -1181,9 +1206,12 @@
     const cfg = pickCfg(S);
     const st2 = E.make(cfg, 3 - st.starter, st.gameNo + 1);
     O.rated = '';
-    const { error } = await sb.from('games').update({ cfg, state: st2, rated: false })
+    // Партия доиграна — счёт обнуляем и начинаем новую; иначе это просто следующий раунд.
+    const upd = { cfg, state: st2, rated: false };
+    if (matchWin(Object.assign(zeroScore(), g.score))) upd.score = zeroScore();
+    const { error } = await sb.from('games').update(upd)
       .eq('code', code).eq('state->>gameNo', String(st.gameNo));
-    if (gameErr(error, 'Не удалось начать новую партию')) return;
+    if (gameErr(error, 'Не удалось начать новый раунд')) return;
     fetchGame();
   }
 
@@ -1518,6 +1546,9 @@
     const root = document.documentElement.style;
     root.setProperty('--p1', 'var(--c-' + lookOf(1).color + ')');
     root.setProperty('--p2', 'var(--c-' + lookOf(2).color + ')');
+    // Белой фишке в светлой теме нужна кромка: css находит её по этим отметкам.
+    document.documentElement.setAttribute('data-p1', lookOf(1).color);
+    document.documentElement.setAttribute('data-p2', lookOf(2).color);
 
   }
   function cellLabel(st, i, v) {
@@ -1737,6 +1768,13 @@
     return out + '</span>';
   }
   const resultKey = (st) => (online() ? O.code : 'local') + ':' + st.gameNo;
+  // Счёт партии кружками: заполнённые — взятые раунды, пустые — сколько ещё нужно.
+  function scoreDots(p, score) {
+    const won = Math.min(score[p] || 0, MATCH_WINS);
+    let out = '<span class="dots p' + p + '" title="Выиграно раундов: ' + (score[p] || 0) + ' из ' + MATCH_WINS + '">';
+    for (let k = 0; k < MATCH_WINS; k++) out += '<i' + (k < won ? ' class="on"' : '') + '></i>';
+    return out + '</span>';
+  }
 
   function renderCover() {
     let html = '';
@@ -1746,16 +1784,23 @@
     cover0.classList.remove('finish');
     if (st && st.over && O.hideResult !== resultKey(st)) {
       const w = st.winner;
-      const mine = online() ? me : 1;
-      const score = online() ? Object.assign({ 1: 0, 2: 0, d: 0 }, g && g.score) : Lc.score;
-      const kind = !w ? 'draw' : w === mine ? 'won' : 'lost';
+      // «Вы» есть только там, где за устройством один игрок: вдвоём на одном зовём по именам.
+      const mine = online() ? me : S.opp === 'bot' ? 1 : 0;
+      const score = curScore();
+      const mw = matchWin(score);
+      const kind = !(mw || w) ? 'draw' : (mw || w) === mine ? 'won' : 'lost';
       const canAgain = !online() || !!me;
+      const head = mw
+        ? mw === mine ? 'Партия за вами' : 'Партию забирает ' + names()[mw]
+        : resultText(w, st.winReason);
       cover0.classList.add('finish');
-      html = '<div class="result ' + kind + (w ? ' w' + w : '') + '">' +
-        (w ? sparks() : '') +
-        '<h2>' + esc(resultText(w, st.winReason)) + '</h2>' +
-        '<p class="tally">' + score[1] + ' : ' + score[2] + ' · ничьих ' + (score.d || 0) + '</p>' +
-        (canAgain ? '<button class="btn primary" type="button" data-act="again">Ещё партия</button>' : '') +
+      html = '<div class="result ' + kind + ((mw || w) ? ' w' + (mw || w) : '') + '">' +
+        ((mw || w) ? sparks() : '') +
+        '<h2>' + esc(head) + '</h2>' +
+        (mw ? '<p class="sub-result">' + esc(resultText(w, st.winReason)) + '</p>' : '') +
+        '<p class="tally">' + scoreDots(1, score) + '<b>' + score[1] + ' : ' + score[2] + '</b>' + scoreDots(2, score) + '</p>' +
+        (score.d ? '<p class="small">Ничейных раундов: ' + score.d + ' — они не засчитываются.</p>' : '') +
+        (canAgain ? '<button class="btn primary" type="button" data-act="again">' + (mw ? 'Новая партия' : 'Следующий раунд') + '</button>' : '') +
         '<button class="linkbtn" type="button" data-act="see-board">Посмотреть поле</button>' +
       '</div>';
     } else if (!online() && Lc.cfg && Lc.cfg.secret && Lc.phase === 'handoff') {
@@ -1957,6 +2002,14 @@
     range.style.setProperty('--fill', S.volume + '%');
   }
 
+  // Палитра тянет за собой пару цветов фишек: мы советуем сочетание, но его можно переиграть.
+  function applyPair(id) {
+    const pal = PALETTES.find((x) => x.id === id);
+    if (!pal || !pal.pair) return;
+    S.look[1].color = pal.pair[0];
+    S.look[2].color = pal.pair[1];
+  }
+
   function renderPalettes() {
     const host = $('palettes');
     const key = S.palette;
@@ -2060,7 +2113,6 @@
     $('boardWrap').hidden = !st;
     $('actions').hidden = !st;
     $('players').hidden = !st;
-    $('draws').hidden = !st;
     $('logPanel').hidden = !st;
     $('tools').hidden = true;
     const msg = $('msg');
@@ -2093,7 +2145,7 @@
     else renderBoard(st, cfg, p, human);
     renderCover();
 
-    $('round').textContent = cfg.secret ? 'Раунд ' + st.round : 'Ход ' + (st.moves + (st.over ? 0 : 1));
+    $('round').textContent = 'Ход ' + (cfg.secret ? st.round : st.moves + (st.over ? 0 : 1));
     const stEl = $('statusText');
     stEl.className = st.over && st.winner ? 'win' + st.winner : '';
     stEl.textContent = statusText(st, cfg);
@@ -2145,24 +2197,30 @@
     if (hold) {
       cbtn.hidden = false;
       cbtn.disabled = false;
+      cbtn.className = 'btn go';
       cbtn.textContent = 'Подтвердить · ' + Math.max(1, Math.ceil((hold.until - Date.now()) / 1000));
       const back = $('cancelMove');
       back.hidden = false;
+      back.className = 'btn no';
       back.textContent = 'Отмена';
+      $('actions').classList.add('pair');
       $('tools').hidden = true;
       renderBoard(st, cfg, 0, false);
       tickTimer();
       return;
     }
+    cbtn.className = 'btn primary';
+    $('cancelMove').className = 'btn ghost';
+    $('actions').classList.remove('pair');
     const waiting = canCancel();
     if (st.over) {
-      cbtn.textContent = 'Ещё партия';
+      cbtn.textContent = matchWin(curScore()) ? 'Новая партия' : 'Следующий раунд';
       cbtn.disabled = isOnline && !mySeat();
     } else {
       cbtn.textContent = ACT_WORD[ui.action] || 'Сделать ход';
       cbtn.disabled = !(ui.sel !== null && human);
     }
-    // Пока открыта ширма с итогом, вторая кнопка «Ещё партия» под доской лишняя.
+    // Пока открыта ширма с итогом, вторая такая же кнопка под доской лишняя.
     const onCover = st.over && O.hideResult !== resultKey(st);
     cbtn.hidden = waiting || onCover;
     const back = $('cancelMove');
@@ -2181,7 +2239,7 @@
     cancel.textContent = O.confirmDelete === O.code ? 'Точно отменить?' : 'Отменить партию';
     tickTimer();
 
-    const score = isOnline ? Object.assign({ 1: 0, 2: 0, d: 0 }, O.game.score) : Lc.score;
+    const score = curScore();
     for (const pl of [1, 2]) {
       renderCard(pl, st, cfg, isOnline, score);
       let active;
@@ -2190,7 +2248,6 @@
       else active = cfg.secret ? Lc.phase === 'pick' + pl : st.turn === pl;
       $('card' + pl).classList.toggle('active', active);
     }
-    $('draws').textContent = score.d + ' ' + plural(score.d, 'ничья', 'ничьи', 'ничьих');
 
     renderLog(st);
   }
@@ -2233,7 +2290,7 @@
     if (st.misses && st.misses[p]) add('miss', st.misses[p] + '/' + E.MISS_LIMIT, 'Пропущено ходов подряд');
     const turn = isOnline && cfg.secret && !st.over && O.game && O.game.p2 && seatDone(p);
 
-    const key = JSON.stringify([nm, elo, place, lookOf(p), bits, score[p], turn]);
+    const key = JSON.stringify([nm, elo, place, lookOf(p), bits, score[p], score.d, turn]);
     if (host.dataset.key === key) return;
     host.dataset.key = key;
     host.className = 'pcard p' + p + (place ? ' medal m' + place : '');
@@ -2242,8 +2299,8 @@
       '<span class="nm">' + esc(nm) + '</span>' +
       (elo ? '<span class="elo"' + (place ? ' title="' + place + '-е место в таблице лидеров"' : '') + '>' + elo + '</span>' : '') +
       (turn ? '<span class="done" title="Ход сделан">✓</span>' : '') +
-      '<span class="bits">' + bits.join('') + '</span>' +
-      '<span class="score" title="Побед в этой серии">' + score[p] + '</span>';
+      scoreDots(p, score) +
+      '<span class="bits">' + bits.join('') + '</span>';
   }
 
   function renderTop() {
@@ -2297,7 +2354,7 @@
     $('rulesNote').textContent = locked
       ? cfgSummary(src) + '. ' + (online() ? 'Правила выбрал создатель партии.' : 'Партия идёт: правила можно будет поменять после неё.')
       : R.route === 'online' ? 'Эти правила получит партия, которую вы создадите.'
-      : st && st.over ? 'Эти правила получит следующая партия — нажмите «Ещё партия».'
+      : st && st.over ? 'Эти правила получит следующий раунд — нажмите кнопку под полем.'
       : 'Смена правил сразу начинает новую партию.';
   }
 
@@ -2311,10 +2368,12 @@
       labels = { 1: 'Ваши фишки', 2: foe && foe !== 'Игрок' ? 'Фишки: ' + foe : 'Фишки соперника' };
     } else {
       const nm = names();
-      labels = { 1: nm[1], 2: nm[2] };
+      // В настройках соперник — просто «противник»: бот он или живой игрок, тут не важно.
+      labels = { 1: nm[1], 2: S.opp === 'bot' ? 'Противник' : nm[2] };
     }
     const blocks = [{ slot: 1, label: labels[1], look: S.look[1] }, { slot: 2, label: labels[2], look: S.look[2] }];
-    const key = JSON.stringify(blocks);
+    const pal = PALETTES.find((x) => x.id === S.palette) || PALETTES[0];
+    const key = JSON.stringify([blocks, pal.id]);
     const host = $('looks');
     if (host.dataset.key === key) return;
     host.dataset.key = key;
@@ -2322,10 +2381,14 @@
       '<div class="look" data-slot="' + bk.slot + '">' +
         '<span class="look-name"></span>' +
         '<div class="swatches" role="group" aria-label="Цвет">' +
-          COLORS.map((c) => '<button type="button" class="swatch" data-color="' + c.id + '" style="--sw: var(--c-' + c.id + ')" title="' + c.name + '" aria-label="' + c.name + '" aria-pressed="' + (bk.look.color === c.id) + '"></button>').join('') +
+          COLORS.map((c) => {
+            const rec = pal.pair && pal.pair[bk.slot - 1] === c.id;
+            const title = c.name + (rec ? ' · советуем к палитре «' + pal.name + '»' : '');
+            return '<button type="button" class="swatch' + (rec ? ' rec' : '') + '" data-color="' + c.id + '" style="--sw: var(--c-' + c.id + ')" title="' + title + '" aria-label="' + title + '" aria-pressed="' + (bk.look.color === c.id) + '"></button>';
+          }).join('') +
         '</div>' +
         '<div class="shapes" role="group" aria-label="Фигура">' +
-          SHAPES.map((s) => '<button type="button" class="shp" data-shape="' + s.id + '" title="' + s.name + '" aria-label="' + s.name + '" aria-pressed="' + (bk.look.shape === s.id) + '"><span class="stone sh-' + s.id + '" style="--pc: var(--c-' + bk.look.color + ')"></span></button>').join('') +
+          SHAPES.map((s) => '<button type="button" class="shp" data-shape="' + s.id + '" title="' + s.name + '" aria-label="' + s.name + '" aria-pressed="' + (bk.look.shape === s.id) + '"><span class="stone sh-' + s.id + (bk.look.color === 'snow' ? ' edge' : '') + '" style="--pc: var(--c-' + bk.look.color + ')"></span></button>').join('') +
         '</div>' +
       '</div>'
     ).join('');
@@ -2359,9 +2422,8 @@
       save();
       if (key === 'theme') { render(); return; }
       if (key === 'sound') { if (val) SFX.join(); render(); return; }
-      if (key === 'hold') { render(); return; }
-      if (key === 'opp') { Lc.score = { 1: 0, 2: 0, d: 0 }; Lc.starter = 2; newLocal(); return; }
-      // Правила: до первого хода перезапускают партию, после неё — ждут «Ещё партия».
+      if (key === 'opp') { Lc.starter = 2; newLocal(); return; }
+      // Правила: до первого хода перезапускают раунд, после него — ждут кнопки под полем.
       if (R.route !== 'play') { render(); return; }
       if (Lc.st && Lc.st.over) { render(); return; }
       Lc.starter = 2;
@@ -2497,6 +2559,7 @@
     const b = e.target.closest('.pal');
     if (!b || b.dataset.pal === S.palette) return;
     S.palette = b.dataset.pal;
+    applyPair(S.palette);
     save();
     render();
   });

@@ -403,7 +403,7 @@
     resolveRound(st, cfg, m1, m2) {
       E.resetFx(st);
       st.scar = [];
-      const tag = 'Р' + st.round, ev = [], placed = [];
+      const tag = 'Х' + st.round, ev = [], placed = [];
       // Якорь забирают бесплатно и до самого хода: освободившаяся клетка сразу годится.
       for (const [p, m] of [[1, m1], [2, m2]]) E.spend(st, p, m.spent);
       for (const [p, m] of [[1, m1], [2, m2]]) if (m.take) E.takeAnchor(st, cfg, p, m.take, ev);
@@ -534,7 +534,7 @@
     resign(st, cfg, p) {
       if (st.over) return;
       E.resetFx(st);
-      const tag = cfg.secret ? 'Р' + st.round : 'Х' + st.moves;
+      const tag = 'Х' + (cfg.secret ? st.round : st.moves);
       E.finish(st, 3 - p, { line: [], reason: 'resign' }, tag);
     }
   };
