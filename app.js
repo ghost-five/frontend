@@ -26,11 +26,11 @@
   // a и b — только для кружка-образца в настройках; сами цвета задаёт styles.css.
   // pair — цвета фишек, которые мы советуем к этой палитре: их подставляет смена палитры.
   const PALETTES = [
-    { id: 'classic', name: 'Классика', a: '#4F6BFF', b: '#8A6BFF', pair: ['cobalt', 'coral'] },
-    { id: 'forest', name: 'Лес', a: '#2AA873', b: '#67C993', pair: ['indigo', 'amber'] },
-    { id: 'sunset', name: 'Закат', a: '#E0702F', b: '#F0A14E', pair: ['indigo', 'teal'] },
-    { id: 'violet', name: 'Сумерки', a: '#7C52DC', b: '#B06BE4', pair: ['teal', 'amber'] },
-    { id: 'mono', name: 'Графит', a: '#5A6782', b: '#8C97AE', pair: ['cobalt', 'coral'] }
+    { id: 'classic', name: 'Классика', a: '#4F6BFF', b: '#8A6BFF', pair: ['sky', 'lemon'] },
+    { id: 'forest', name: 'Лес', a: '#2AA873', b: '#67C993', pair: ['sky', 'coral'] },
+    { id: 'sunset', name: 'Закат', a: '#E0702F', b: '#F0A14E', pair: ['sky', 'lemon'] },
+    { id: 'violet', name: 'Сумерки', a: '#7C52DC', b: '#B06BE4', pair: ['teal', 'coral'] },
+    { id: 'mono', name: 'Графит', a: '#5A6782', b: '#8C97AE', pair: ['snow', 'lemon'] }
   ];
   const SHAPES = [
     { id: 'circle', name: 'Круг' }, { id: 'ring', name: 'Кольцо' }, { id: 'square', name: 'Квадрат' },
@@ -49,7 +49,7 @@
   const S = {
     opp: 'bot', theme: 'auto', palette: 'classic', logOpen: true, rulesOpen: false, sound: true, volume: 70,
     size: 13, win: 4, secret: true, wallTtl: 5, mem: 8, anchor: true, shots: 1, capture: false, timer: 0, bank: 60,
-    look: { 1: { color: 'cobalt', shape: 'circle' }, 2: { color: 'coral', shape: 'diamond' } }
+    look: { 1: { color: 'sky', shape: 'circle' }, 2: { color: 'lemon', shape: 'diamond' } }
   };
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function lsSet(k, v) { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} }

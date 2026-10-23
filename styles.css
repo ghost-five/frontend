@@ -24,12 +24,13 @@
   --brand-ink: #FFFFFF;
   --shadow: 0 1px 2px rgb(21 27 42 / .06), 0 8px 24px -12px rgb(21 27 42 / .18);
   --shadow-lg: 0 2px 6px rgb(21 27 42 / .08), 0 24px 48px -24px rgb(21 27 42 / .32);
-  --c-cobalt: #2F4BD8; --c-indigo: #5B3BD6; --c-sky: #0E7FD4; --c-teal: #0B8799;
-  --c-emerald: #0E9466; --c-lime: #5E8F12; --c-amber: #C98100; --c-orange: #D96A14;
-  --c-coral: #E0544A; --c-crimson: #B01E3F; --c-rose: #C42C76; --c-plum: #8E2FA8;
-  --c-violet: #8640CC; --c-graphite: #68738A;
+  /* На светлой доске фишки глубокие: светлая заливка на светлых клетках не читается. */
+  --c-cobalt: #2740BE; --c-indigo: #4B2DB8; --c-sky: #0A63AC; --c-teal: #076C7B;
+  --c-emerald: #0A7A53; --c-lime: #4C760C; --c-amber: #A96C00; --c-orange: #B4530E;
+  --c-coral: #C43D34; --c-crimson: #96102F; --c-rose: #A61D60; --c-plum: #76228C;
+  --c-violet: #6E2FB0; --c-graphite: #566078;
   /* «Белый» — самый контрастный к доске: в светлой теме он тёмно-графитовый. */
-  --c-lemon: #BFA100; --c-snow: #242C3C;
+  --c-lemon: #8F7600; --c-snow: #242C3C;
   --p1: var(--c-cobalt);
   --p2: var(--c-coral);
   --r-sm: 10px;
