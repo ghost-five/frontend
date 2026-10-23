@@ -1,0 +1,8 @@
+.git
+.github
+tools
+fixtures
+docs
+*.md
+supabase.sql
+.gitignore
