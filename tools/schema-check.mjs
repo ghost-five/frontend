@@ -8,16 +8,23 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
-// Схема — часть контракта и живёт в репозитории backend. Ожидаем его рядом;
-// путь можно задать переменной GF_BACKEND, если репозитории лежат иначе.
-const backend = process.env.GF_BACKEND || join(root, '..', 'ghost-five-backend');
-const schemaPath = join(backend, 'docs/api/game-state.schema.json');
-let schema;
-try {
-  schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
-} catch (e) {
-  console.error('не нашёл схему состояния:', schemaPath);
-  console.error('положите репозиторий backend рядом или задайте GF_BACKEND=путь');
+// Схема — часть контракта и живёт в репозитории backend. Ищем его рядом под любым
+// привычным именем; если репозитории лежат иначе, задайте GF_BACKEND=путь.
+const where = [
+  process.env.GF_BACKEND,
+  join(root, '..', 'backend'),
+  join(root, '..', 'ghost-five-backend')
+].filter(Boolean);
+
+let schema = null, schemaPath = '';
+for (const dir of where) {
+  schemaPath = join(dir, 'docs/api/game-state.schema.json');
+  try { schema = JSON.parse(readFileSync(schemaPath, 'utf8')); break; } catch (e) { /* ищем дальше */ }
+}
+if (!schema) {
+  console.error('не нашёл схему состояния. Искал тут:');
+  for (const dir of where) console.error('  ' + join(dir, 'docs/api/game-state.schema.json'));
+  console.error('Положите репозиторий backend рядом или задайте GF_BACKEND=путь');
   process.exit(2);
 }
 

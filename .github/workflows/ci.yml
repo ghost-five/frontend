@@ -1,0 +1,32 @@
+# Проверки клиента на каждый коммит и pull request.
+name: ci
+
+on:
+  push: { branches: [main] }
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Контракт лежит в соседнем репозитории: схема состояния должна сходиться
+      # с тем, что считает движок. Для приватного backend нужен токен в secrets.
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/backend
+          path: ../backend
+          token: ${{ secrets.BACKEND_RO_TOKEN || github.token }}
+        continue-on-error: true
+
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+
+      - name: золотые тесты движка
+        run: node tools/fixtures-check.mjs
+
+      - name: схема состояния сходится с движком
+        run: node tools/schema-check.mjs
+        env:
+          GF_BACKEND: ../backend
