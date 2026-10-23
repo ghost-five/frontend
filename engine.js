@@ -225,16 +225,16 @@
       }
     },
 
-    // Стена со сроком 0 стоит вечно; остальные остывают, даже если правило выключено.
+    // Стена со сроком 0 стоит вечно; остальные разрушаются, даже если правило выключено.
     wallTick(st, skip) {
-      let cooled = 0;
+      let broken = 0;
       const keep = [];
       for (const [i, t] of st.walls) {
         if (i === skip || !t) { keep.push([i, t]); continue; }
-        if (t <= 1) { st.cells[i] = 0; cooled++; } else keep.push([i, t - 1]);
+        if (t <= 1) { st.cells[i] = 0; broken++; } else keep.push([i, t - 1]);
       }
       st.walls = keep;
-      return cooled;
+      return broken;
     },
 
     findWin(st, cfg, p) {
@@ -462,8 +462,8 @@
         const gone = E.trim(st, cfg, p);
         if (gone >= 0) ev.push({ k: 'vanish', p, i: gone });
       }
-      const cooled = E.wallTick(st, newWall >= 0 ? newWall : echo);
-      if (cooled) ev.push({ k: 'cool', n: cooled });
+      const broken = E.wallTick(st, newWall >= 0 ? newWall : echo);
+      if (broken) ev.push({ k: 'wallGone', n: broken });
       E.countMiss(st, ev);
       for (const [p, m] of [[1, m1], [2, m2]]) E.bankTick(st, cfg, p, m, ev);
       E.log(st, tag, ev, kind);

@@ -252,6 +252,7 @@
       case 'anchorMiss': return [nameRef(e.p), ': выстрел в якорь', ...at(e.i, ' '), ' — его не сбить.'];
       case 'cap': return [nameRef(e.p), ': ' + (e.n === 1 ? 'захвачена пара' : 'захвачено пар: ' + e.n) + ' (' + e.total + '/5).'];
       case 'vanish': return [nameRef(e.p), ': исчезла старая фишка', ...at(e.i, ' '), '.'];
+      case 'wallGone':
       case 'cool': return [e.n === 1 ? 'Одна стена разрушилась.' : 'Разрушено стен: ' + e.n + '.'];
       case 'bankBack': return [nameRef(e.p), ': запас времени восстановлен.'];
       case 'pass': return [nameRef(e.p), ': ход пропущен.'];
@@ -1610,7 +1611,7 @@
         const ttl = walls.get(i);
         if (cfg.wallTtl && ttl) {
           if (ttl <= 3) inner = '<span class="badge">' + ttl + '</span>';
-          if (ttl === 1) cls += ' cool';
+          if (ttl === 1) cls += ' crumbling';
         }
       } else if (v === 1 || v === 2) {
         const anchored = anchors.has(i);
