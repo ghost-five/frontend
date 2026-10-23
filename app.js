@@ -1507,8 +1507,7 @@
     const root = document.documentElement.style;
     root.setProperty('--p1', 'var(--c-' + lookOf(1).color + ')');
     root.setProperty('--p2', 'var(--c-' + lookOf(2).color + ')');
-    $('ico1').className = 'stone p1 sh-' + lookOf(1).shape;
-    $('ico2').className = 'stone p2 sh-' + lookOf(2).shape;
+
   }
   function cellLabel(st, i, v) {
     const n = st.n, r = ((i / n) | 0) + 1, c = (i % n) + 1;
@@ -2156,19 +2155,9 @@
     cancel.textContent = O.confirmDelete === O.code ? 'Точно отменить?' : 'Отменить партию';
     tickTimer();
 
-    const nm = names();
     const score = isOnline ? Object.assign({ 1: 0, 2: 0, d: 0 }, O.game.score) : Lc.score;
     for (const pl of [1, 2]) {
-      $('name' + pl).textContent = nm[pl];
-      $('meta' + pl).textContent = colorOf(pl).nom;
-      const rk = $('rank' + pl);
-      const uid = isOnline && O.game ? (pl === 1 ? O.game.p1 : O.game.p2) : null;
-      const elo = uid ? O.ratings[uid] : null;
-      rk.hidden = !elo;
-      if (elo) rk.textContent = elo;
-      renderSkills(pl, st, cfg, isOnline);
-      $('wins' + pl).textContent = score[pl];
-      $('winsWord' + pl).textContent = plural(score[pl], 'победа', 'победы', 'побед');
+      renderCard(pl, st, cfg, isOnline, score);
       let active;
       if (st.over) active = st.winner === pl;
       else if (isOnline) active = !!O.game.p2 && (cfg.secret ? !seatDone(pl) : st.turn === pl);
@@ -2180,24 +2169,48 @@
     renderLog(st);
   }
 
-  function renderSkills(p, st, cfg, isOnline) {
-    const host = $('skills' + p);
-    const items = [];
-    if (cfg.shots) items.push({ t: 'Выстрелы', v: st.shots[p], off: st.shots[p] === 0 });
+  // Карточка игрока: запас времени полоской, расходуемое точками, редкое метками.
+  function renderCard(p, st, cfg, isOnline, score) {
+    const host = $('card' + p);
+    const nm = names()[p];
+    const uid = isOnline && O.game ? (p === 1 ? O.game.p1 : O.game.p2) : null;
+    const elo = uid ? O.ratings[uid] : null;
+    const rows = [];
+    const dots = (total, full) => {
+      let out = '<span class="dots">';
+      for (let k = 0; k < total; k++) out += '<i' + (k < full ? '' : ' class="off"') + '></i>';
+      return out + '</span>';
+    };
+    if (cfg.bank && st.bank) {
+      const left = st.bank[p] || 0, part = Math.max(0, Math.min(100, (left / cfg.bank) * 100));
+      rows.push({ t: 'Запас', body: '<span class="track"><span style="width:' + part.toFixed(0) + '%"></span></span>',
+        v: fmtSpan(left), low: left <= 10 });
+    }
+    if (cfg.shots) {
+      rows.push({ t: 'Выстрелы', body: dots(cfg.shots, st.shots[p]), v: st.shots[p] + '/' + cfg.shots, low: !st.shots[p] });
+    }
     if (E.anchorOn(cfg)) {
       const on = E.anchorsOf(st, p);
-      if (on.length) items.push({ t: on.length > 1 ? 'Якоря на' : 'Якорь на', v: on.map((i) => cellName(st, i)).join(', ') });
-      if (st.anchorLeft[p]) items.push({ t: 'Ещё якорей', v: st.anchorLeft[p] });
-      if (!on.length && !st.anchorLeft[p]) items.push({ t: 'Якорей', v: 0, off: true });
+      const where = on.length ? on.map((i) => cellName(st, i)).join(' ') : st.anchorLeft[p] ? 'в запасе' : '—';
+      rows.push({ t: on.length > 1 ? 'Якоря' : 'Якорь', body: dots(E.ANCHORS, on.length), v: where, low: !on.length && !st.anchorLeft[p] });
     }
-    if (cfg.capture) items.push({ t: 'Пары', v: st.caps[p] + '/5' });
-    if (cfg.bank && st.bank) items.push({ t: 'Время в запасе', v: fmtSpan(st.bank[p] || 0), off: !st.bank[p] });
-    if (st.misses && st.misses[p]) items.push({ t: 'Пропуски', v: st.misses[p] + '/' + E.MISS_LIMIT });
-    if (isOnline && cfg.secret && !st.over && O.game && O.game.p2 && seatDone(p)) items.push({ t: 'Ход сделан', v: '✓' });
-    const key = JSON.stringify(items);
+    const tags = [];
+    if (cfg.capture) tags.push({ t: 'Пары ' + st.caps[p] + '/5' });
+    if (st.misses && st.misses[p]) tags.push({ t: 'Пропуск ' + st.misses[p] + '/' + E.MISS_LIMIT });
+    if (isOnline && cfg.secret && !st.over && O.game && O.game.p2 && seatDone(p)) tags.push({ t: 'Ход сделан', go: true });
+
+    const key = JSON.stringify([nm, elo, lookOf(p), colorOf(p).nom, rows, tags, score[p]]);
     if (host.dataset.key === key) return;
     host.dataset.key = key;
-    host.innerHTML = items.map((x) => '<span class="skill' + (x.off ? ' off' : '') + '">' + esc(x.t) + ' <b>' + esc(String(x.v)) + '</b></span>').join('');
+    host.innerHTML =
+      '<div class="headline">' +
+        '<span class="ico"><span class="stone p' + p + ' sh-' + lookOf(p).shape + '"></span></span>' +
+        '<span class="nm">' + esc(nm) + '</span>' +
+        '<span class="score">' + score[p] + '</span>' +
+      '</div>' +
+      '<div class="sub">' + esc(colorOf(p).nom) + (elo ? ' · ' + elo : '') + '</div>' +
+      rows.map((r) => '<div class="gauge' + (r.low ? ' low' : '') + '"><span>' + esc(r.t) + '</span>' + r.body + '<b>' + esc(r.v) + '</b></div>').join('') +
+      (tags.length ? '<div class="tags">' + tags.map((x) => '<span class="tag' + (x.go ? ' go' : '') + '">' + esc(x.t) + '</span>').join('') + '</div>' : '');
   }
 
   function renderTop() {
