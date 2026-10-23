@@ -114,6 +114,8 @@
       </div>
       <button class="btn ghost" id="newGame" type="button">Новая партия</button>
       <button class="chip warn" id="resignBtn" type="button">Сдаться</button>
+      <button class="chip" id="backLive" type="button" hidden>Вернуться к партии</button>
+      <button class="chip more" id="moreLocal" type="button" title="Правила, оформление, архив" aria-label="Правила, оформление, архив">⋮</button>
     </div>
     <div class="playbar" id="onlineBar" hidden>
       <span class="gb-code"><span class="live-dot" id="liveDot"></span>Партия <b id="gbCode"></b></span>
@@ -122,18 +124,34 @@
       <button class="chip" type="button" id="toLobby">Все партии</button>
       <button class="chip warn" type="button" id="resignOnline">Сдаться</button>
       <button class="chip warn" type="button" id="cancelGame">Отменить партию</button>
+      <button class="chip more" id="moreOnline" type="button" title="Правила и оформление" aria-label="Правила и оформление">⋮</button>
       <span class="gb-note" id="gbNote" hidden></span>
     </div>
 
+    <div class="drawer" id="drawer" hidden>
+      <div id="rulesSlotPlay"></div>
+      <div id="looksSlotPlay"></div>
+      <section class="card" id="archiveCard">
+        <h3 class="card-title">Сыгранные партии</h3>
+        <ul class="glist" id="archive"></ul>
+      </section>
+    </div>
+
     <div class="playgrid">
+      <aside class="playlog">
+        <details class="card fold" id="logPanel" open>
+          <summary class="card-title">Ход игры</summary>
+          <div class="rewind" id="rewind" hidden>
+            <button class="chip" type="button" id="stepBack" title="Шаг назад">←</button>
+            <span class="rewind-at" id="rewindAt"></span>
+            <button class="chip" type="button" id="stepFwd" title="Шаг вперёд">→</button>
+            <button class="chip" type="button" id="stepLive">К текущему</button>
+          </div>
+          <ol class="log" id="log"></ol>
+        </details>
+      </aside>
+
       <div class="playmain">
-        <div class="status" id="statusRow">
-          <span class="round" id="round">Раунд 1</span>
-          <span class="clock" id="clock" hidden><i class="bar" id="clockBar"></i><b id="clockText"></b></span>
-          <span class="clock bank" id="bankClock" hidden><i class="bar" id="bankBar"></i><b id="bankText"></b></span>
-          <span id="statusText">Выберите клетку</span>
-        </div>
-        <p class="msg" id="msg" hidden></p>
         <div class="board-wrap" id="boardWrap">
           <div class="board-frame">
             <div class="ranks" id="ranks" aria-hidden="true"></div>
@@ -147,6 +165,22 @@
           </div>
           <div class="cover" id="cover" hidden><div class="cover-inner"></div></div>
         </div>
+      </div>
+
+      <aside class="playside">
+        <div class="status" id="statusRow">
+          <span class="round" id="round">Раунд 1</span>
+          <span class="clock" id="clock" hidden><i class="bar" id="clockBar"></i><b id="clockText"></b></span>
+          <span class="clock bank" id="bankClock" hidden><i class="bar" id="bankBar"></i><b id="bankText"></b></span>
+          <span id="statusText">Выберите клетку</span>
+        </div>
+        <p class="msg" id="msg" hidden></p>
+
+        <div class="actions" id="actions">
+          <button class="btn primary" id="confirm" type="button" disabled>Сделать ход</button>
+          <button class="btn ghost" id="cancelMove" type="button" hidden>Отменить ход</button>
+        </div>
+
         <div class="tools" id="tools" hidden>
           <span class="label">Действие</span>
           <button class="chip" id="actPlace" type="button">Поставить фишку</button>
@@ -156,13 +190,7 @@
           <button class="chip" id="actMagnet" type="button">Магнит</button>
           <button class="chip" id="actTake" type="button">Забрать якорь</button>
         </div>
-        <div class="actions" id="actions">
-          <button class="btn primary" id="confirm" type="button" disabled>Сделать ход</button>
-          <button class="btn ghost" id="cancelMove" type="button" hidden>Отменить ход</button>
-        </div>
-      </div>
 
-      <aside class="playside">
         <div class="players" id="players">
           <div class="pcard p1" id="card1">
             <div class="pname"><span class="ico"><span class="stone p1" id="ico1"></span></span><span id="name1">Вы</span><span class="rank" id="rank1" hidden></span></div>
@@ -178,14 +206,6 @@
           </div>
         </div>
         <p class="draws" id="draws">Ничьих: 0</p>
-
-        <details class="card fold" id="logPanel" open>
-          <summary class="card-title">Ход игры</summary>
-          <ol class="log" id="log"></ol>
-        </details>
-
-        <div id="looksSlotPlay"></div>
-        <div id="rulesSlotPlay"></div>
       </aside>
     </div>
   </section>
@@ -276,7 +296,7 @@
           <h3 class="card-title">Выстрелы, пары, стены</h3>
           <p><b>Выстрел</b> сбивает фишку соперника вместо хода. С тайным ходом можно стрелять и в пустую клетку, угадывая, куда он пойдёт: попадание по только что поставленной фишке отмечается отдельно. Якорь выстрелом не берётся. Клетка, с которой сбили фишку, остаётся помеченной на один ход.</p>
           <p><b>Захват пар.</b> Зажмите ровно две фишки соперника своими с обеих сторон — они исчезнут. Пять захваченных пар — победа.</p>
-          <p><b>Стены</b> появляются там, где сошлись два хода. Если включено остывание, стена исчезает через заданное число раундов; след от якоря живёт один раунд независимо от этой настройки.</p>
+          <p><b>Стены</b> появляются там, где сошлись два хода. Если в правилах задан срок, стена разрушается через заданное число раундов; след от якоря живёт один раунд независимо от этой настройки.</p>
         </section>
 
         <section class="card doc">
@@ -284,10 +304,14 @@
           <p><b>Две шкалы.</b> «Ход» — лимит на один ход, «запас» — общий резерв на всю партию. Когда основное время кончилось, идёт запас; его остаток виден в карточке игрока.</p>
           <p><b>Если не успели:</b> выбранная клетка всё равно уходит в ход. Если ничего не выбрано, ход пропускается.</p>
           <p><b id="docMiss">Три пропуска подряд</b> — поражение. Любой сделанный ход обнуляет счётчик.</p>
+          <p><b>Запас возвращается.</b> Три хода подряд, уложившись в основное время, — и запас снова полон.</p>
+          <p><b>Пауза перед ходом.</b> После «Сделать ход» есть несколько секунд, чтобы передумать: кнопка превращается в «Отменить» с обратным отсчётом. Длительность настраивается в «Интерфейсе».</p>
         </section>
 
         <section class="card doc">
           <h3 class="card-title">Нотация и журнал</h3>
+          <p><b>Перемотка.</b> Стрелки над журналом показывают, как поле выглядело на прошлых ходах; «К текущему» возвращает в игру. Пока вы смотрите прошлое, ходить нельзя.</p>
+          <p><b>Архив.</b> Доигранные партии с ботом и на одном устройстве сохраняются в «три точки» → «Сыгранные партии»: их можно открыть и пролистать по ходам. Сетевые партии остаются в списке «Мои партии».</p>
           <p>Столбцы подписаны буквами (без «I», чтобы не путать с единицей), строки — цифрами снизу вверх, как на шахматной доске. В журнале каждый ход записан адресом клетки, а ники подсвечены цветом игрока. Наведите мышь на адрес — соответствующая клетка подсветится на поле.</p>
         </section>
 
@@ -361,6 +385,14 @@
         <button type="button" data-v="dark">Тёмная</button>
       </div>
     </div></div>
+    <div class="setting"><div class="row"><span>Пауза перед ходом</span>
+      <div class="seg" data-key="hold" data-type="num">
+        <button type="button" data-v="0">Нет</button>
+        <button type="button" data-v="3">3 с</button>
+        <button type="button" data-v="5">5 с</button>
+      </div></div>
+      <p class="hint">Столько секунд после «Сделать ход» его ещё можно отменить.</p>
+    </div>
     <div class="setting"><div class="row"><span>Звук</span>
       <div class="seg" data-key="sound" data-type="bool">
         <button type="button" data-v="1">Вкл</button>
@@ -387,9 +419,9 @@
       <div class="seg" data-key="secret" data-type="bool"><button type="button" data-v="1">Вкл</button><button type="button" data-v="0">Выкл</button></div></div>
       <p class="hint">Оба выбирают ход одновременно. Выбрали одну клетку: она сгорает и становится стеной.</p>
     </div>
-    <div class="setting" id="set-wallTtl"><div class="row"><span>Стены остывают</span>
-      <div class="seg" data-key="wallTtl" data-type="num"><button type="button" data-v="0">Никогда</button><button type="button" data-v="3">3</button><button type="button" data-v="5">5</button><button type="button" data-v="8">8</button></div></div>
-      <p class="hint">Через сколько раундов стена исчезает. Нужен тайный ход.</p>
+    <div class="setting" id="set-wallTtl"><div class="row"><span>Стены разрушаются</span>
+      <div class="seg" data-key="wallTtl" data-type="num"><button type="button" data-v="0">Стоят вечно</button><button type="button" data-v="3">3</button><button type="button" data-v="5">5</button><button type="button" data-v="8">8</button></div></div>
+      <p class="hint">Через сколько раундов стена разрушается. Нужен тайный ход.</p>
     </div>
     <div class="setting" id="set-mem"><div class="row"><span>Короткая память</span>
       <div class="seg" data-key="mem" data-type="num"><button type="button" data-v="0">Выкл</button><button type="button" data-v="6">6</button><button type="button" data-v="7">7</button><button type="button" data-v="8">8</button><button type="button" data-v="10">10</button></div></div>

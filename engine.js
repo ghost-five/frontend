@@ -16,6 +16,10 @@
   const ANCHORS = 2;
   const MAGNET_RANGE = 5;
   const ECHO_TTL = 1;
+  // Сколько ходов подряд надо уложиться в основное время, чтобы запас вернулся.
+  const BANK_STREAK = 3;
+  // Сколько снимков поля храним для перемотки.
+  const FRAMES = 80;
   // Сколько ходов подряд можно пропустить, прежде чем засчитают поражение.
   const MISS_LIMIT = 3;
 
@@ -24,6 +28,8 @@
     ANCHORS,
     MAGNET_RANGE,
     MISS_LIMIT,
+    BANK_STREAK,
+    FRAMES,
     rowLen,
     anchorOn: (cfg) => !!cfg.anchor && cfg.mem > 0,
 
@@ -33,6 +39,7 @@
         n, cells: new Array(n * n).fill(0), q: { 1: [], 2: [] }, anchors: [], anchorSet: {},
         anchorLeft: { 1: ANCHORS, 2: ANCHORS }, shots: { 1: cfg.shots, 2: cfg.shots }, caps: { 1: 0, 2: 0 },
         walls: [], scar: [], misses: { 1: 0, 2: 0 }, bank: { 1: cfg.bank || 0, 2: cfg.bank || 0 },
+        clean: { 1: 0, 2: 0 }, frames: [],
         round: 1, moves: 0, turn: starter, starter, gameNo,
         over: false, winner: 0, winLine: [], winReason: '', last: [], log: [],
         fx: { fresh: [], gone: [], burn: -1 }
@@ -46,13 +53,33 @@
       if (st.log.length > 16) st.log.pop();
     },
 
-    resetFx(st) { st.fx = { fresh: [], gone: [], burn: -1 }; },
+    resetFx(st) { st.fx = { fresh: [], gone: [], burn: -1, slide: [] }; },
 
     // Запас времени: сколько секунд игрок добрал сверх основного лимита.
     spend(st, p, sec) {
       if (!sec) return;
       if (!st.bank) st.bank = { 1: 0, 2: 0 };
       st.bank[p] = Math.max(0, (st.bank[p] || 0) - Math.max(0, Math.round(sec)));
+    },
+    // Три хода подряд без запаса — и он снова полон.
+    bankTick(st, cfg, p, m, ev) {
+      if (!cfg.bank) return;
+      if (!st.clean) st.clean = { 1: 0, 2: 0 };
+      const acted = m && m.kind && m.kind !== 'pass';
+      if (m && m.spent) { st.clean[p] = 0; return; }
+      if (!acted) { st.clean[p] = 0; return; }
+      st.clean[p] = (st.clean[p] || 0) + 1;
+      if (st.clean[p] < BANK_STREAK) return;
+      st.clean[p] = 0;
+      if ((st.bank[p] || 0) >= cfg.bank) return;
+      st.bank[p] = cfg.bank;
+      ev.push({ k: 'bankBack', p });
+    },
+    // Снимок поля для перемотки: строка из клеток и короткий заголовок.
+    snap(st, tag) {
+      if (!st.frames) st.frames = [];
+      st.frames.push({ t: tag, c: st.cells.join(''), l: st.last.slice(0, 4), s: (st.scar || []).map((x) => x[0]) });
+      if (st.frames.length > FRAMES) st.frames.shift();
     },
     // Три пропуска подряд — поражение; любой сделанный ход обнуляет счёт.
     countMiss(st, ev) {
@@ -276,6 +303,7 @@
       const wall = st.cells[to] === 3;
       if (wall) st.walls = st.walls.filter(([wi]) => wi !== to);
       E.shift(st, from, to);
+      st.fx.slide = (st.fx.slide || []).concat([[from, to]]);
       st.cells[from] = 3;
       st.walls.push([from, ECHO_TTL]);
       ev.push({ k: 'anchorMove', p, from, i: to, wall });
@@ -352,7 +380,8 @@
       const plan = E.magnetPlan(st, cfg, p, to);
       if (!plan) return false;
       const { from, line } = plan;
-      let mine = 2, foe = 2, left = 4, slot = 0, pulled = 0;
+      let mine = 2, foe = 2, left = 4, slot = 0;
+      const moves = [];
       for (const cell of line) {
         const v = st.cells[cell];
         if (v === 0) continue;
@@ -361,11 +390,12 @@
         const own = v === p;
         if (left <= 0 || (own ? mine : foe) <= 0) break;
         const target = line[slot];
-        if (target !== cell) { E.shift(st, cell, target); pulled++; }
+        if (target !== cell) { E.shift(st, cell, target); moves.push([cell, target]); }
         slot++; left--;
         if (own) mine--; else foe--;
       }
-      ev.push({ k: 'magnet', p, i: to, from, n: pulled });
+      st.fx.slide = (st.fx.slide || []).concat(moves);
+      ev.push({ k: 'magnet', p, i: to, from, n: moves.length });
       return true;
     },
 
@@ -435,7 +465,9 @@
       const cooled = E.wallTick(st, newWall >= 0 ? newWall : echo);
       if (cooled) ev.push({ k: 'cool', n: cooled });
       E.countMiss(st, ev);
+      for (const [p, m] of [[1, m1], [2, m2]]) E.bankTick(st, cfg, p, m, ev);
       E.log(st, tag, ev, kind);
+      E.snap(st, tag);
       const w1 = E.checkWin(st, cfg, 1), w2 = E.checkWin(st, cfg, 2);
       if (w1 && w2) E.finish(st, 0, { line: w1.line.concat(w2.line), reason: 'both' }, tag);
       else if (w1) E.finish(st, 1, w1, tag);
@@ -488,7 +520,9 @@
         ev.push({ k: 'pass', p });
       }
       E.countMiss(st, ev);
+      E.bankTick(st, cfg, p, m, ev);
       if (ev.length) E.log(st, tag, ev);
+      E.snap(st, tag);
       const w = E.checkWin(st, cfg, p);
       if (w) E.finish(st, p, w, tag);
       else if (!st.cells.includes(0)) E.finish(st, 0, { line: [], reason: 'full' }, tag);

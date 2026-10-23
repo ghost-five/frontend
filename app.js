@@ -34,7 +34,7 @@
 
   // ---------- Settings (per browser) ----------
   const S = {
-    opp: 'bot', theme: 'auto', palette: 'classic', logOpen: true, rulesOpen: false, sound: true, volume: 70,
+    opp: 'bot', theme: 'auto', palette: 'classic', logOpen: true, rulesOpen: false, sound: true, volume: 70, hold: 3,
     size: 13, win: 4, secret: true, wallTtl: 5, mem: 8, anchor: true, shots: 1, capture: false, timer: 0, bank: 60,
     look: { 1: { color: 'cobalt', shape: 'circle' }, 2: { color: 'coral', shape: 'diamond' } }
   };
@@ -43,7 +43,7 @@
   try {
     const saved = JSON.parse(lsGet('ghost5-settings') || 'null');
     if (saved && typeof saved === 'object') {
-      for (const k of ['opp', 'theme', 'palette', 'logOpen', 'rulesOpen', 'sound', 'volume'].concat(CFG_KEYS)) if (k in saved) S[k] = saved[k];
+      for (const k of ['opp', 'theme', 'palette', 'logOpen', 'rulesOpen', 'sound', 'volume', 'hold'].concat(CFG_KEYS)) if (k in saved) S[k] = saved[k];
       for (const p of [1, 2]) {
         const l = saved.look && saved.look[p];
         if (l && COLORS.some((c) => c.id === l.color)) S.look[p].color = l.color;
@@ -81,7 +81,9 @@
   const R = { route: 'auth' };
   const online = () => R.route === 'game';
   const Lc = { st: null, cfg: null, phase: 'pick', pending1: null, score: { 1: 0, 2: 0, d: 0 }, starter: 2 };
-  const ui = { sel: null, action: 'place', take: -1 };
+  const ui = { sel: null, action: 'place', take: -1, view: -1 };
+  // Ход, отложенный на пару секунд: его ещё можно отменить.
+  let hold = null;
   let busy = false;
   const O = {
     // account
@@ -160,7 +162,7 @@
     if (b > 1 && b < 5) return few;
     return many;
   }
-  const resetUi = () => { ui.sel = null; ui.action = 'place'; ui.take = -1; };
+  const resetUi = () => { ui.sel = null; ui.action = 'place'; ui.take = -1; ui.view = -1; };
 
   function mySeat() {
     if (!O.game || !O.myId) return 0;
@@ -250,7 +252,8 @@
       case 'anchorMiss': return [nameRef(e.p), ': выстрел в якорь', ...at(e.i, ' '), ' — его не сбить.'];
       case 'cap': return [nameRef(e.p), ': ' + (e.n === 1 ? 'захвачена пара' : 'захвачено пар: ' + e.n) + ' (' + e.total + '/5).'];
       case 'vanish': return [nameRef(e.p), ': исчезла старая фишка', ...at(e.i, ' '), '.'];
-      case 'cool': return [e.n === 1 ? 'Одна стена остыла.' : 'Остыло стен: ' + e.n + '.'];
+      case 'cool': return [e.n === 1 ? 'Одна стена разрушилась.' : 'Разрушено стен: ' + e.n + '.'];
+      case 'bankBack': return [nameRef(e.p), ': запас времени восстановлен.'];
       case 'pass': return [nameRef(e.p), ': ход пропущен.'];
       case 'result': return [resultText(e.w, e.reason)];
       default: return [];
@@ -313,14 +316,14 @@
   function localRound(m1, m2) {
     const st = Lc.st;
     E.resolveRound(st, Lc.cfg, m1, m2);
-    if (st.over) bumpScore(Lc.score, st);
+    if (st.over) { bumpScore(Lc.score, st); saveGame(st, Lc.cfg, Lc.score); }
     Lc.phase = 'pick1'; Lc.pending1 = null;
     render();
   }
   function localSeq(p, m) {
     const st = Lc.st;
     E.resolveSeq(st, Lc.cfg, p, m);
-    if (st.over) bumpScore(Lc.score, st);
+    if (st.over) { bumpScore(Lc.score, st); saveGame(st, Lc.cfg, Lc.score); }
     render();
     maybeBot();
   }
@@ -334,6 +337,72 @@
       if (Lc.st !== st || S.opp !== 'bot') { render(); return; }
       localSeq(2, botDecide(st, Lc.cfg, 2));
     }, 650);
+  }
+
+  // ---------- Архив сыгранных партий ----------
+  const ARCHIVE_MAX = 15;
+  function loadArchive() {
+    try { return JSON.parse(lsGet('ghost5-archive') || '[]') || []; } catch (e) { return []; }
+  }
+  function saveGame(st, cfg, score) {
+    if (!st || !st.over || !st.frames || st.frames.length < 2) return;
+    const nm = names();
+    const rec = {
+      id: Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+      when: new Date().toISOString(),
+      cfg: clone(cfg), frames: st.frames.slice(-E.FRAMES), log: st.log.slice(0, 16),
+      winner: st.winner, reason: st.winReason, score: clone(score), names: { 1: nm[1], 2: nm[2] }
+    };
+    const all = [rec].concat(loadArchive()).slice(0, ARCHIVE_MAX);
+    lsSet('ghost5-archive', JSON.stringify(all));
+  }
+  // Лёгкое состояние только для просмотра: ходить в нём нельзя.
+  function replayState(rec) {
+    const last = rec.frames[rec.frames.length - 1];
+    const cells = last.c.split('').map(Number);
+    const n = Math.round(Math.sqrt(cells.length));
+    return {
+      n, cells, q: { 1: [], 2: [] }, anchors: [], anchorSet: {}, anchorLeft: { 1: 0, 2: 0 },
+      shots: { 1: 0, 2: 0 }, caps: { 1: 0, 2: 0 }, walls: [], scar: [], misses: { 1: 0, 2: 0 },
+      bank: { 1: 0, 2: 0 }, clean: { 1: 0, 2: 0 }, frames: rec.frames,
+      round: 1, moves: 0, turn: 1, starter: 1, gameNo: 1,
+      over: true, winner: rec.winner, winLine: [], winReason: rec.reason,
+      last: last.l || [], log: rec.log || [], fx: { fresh: [], gone: [], burn: -1, slide: [] }
+    };
+  }
+  function openArchive(id) {
+    const rec = loadArchive().find((x) => x.id === id);
+    if (!rec) return;
+    if (!Lc.saved) Lc.saved = { st: Lc.st, cfg: Lc.cfg, phase: Lc.phase, pending1: Lc.pending1 };
+    Lc.st = replayState(rec);
+    Lc.cfg = rec.cfg;
+    Lc.phase = 'pick';
+    ui.view = 0;
+    O.hideResult = 'archive';
+    if (online()) { closeGame(); }
+    go('play');
+  }
+  function closeArchive() {
+    if (!Lc.saved) return;
+    Lc.st = Lc.saved.st; Lc.cfg = Lc.saved.cfg; Lc.phase = Lc.saved.phase; Lc.pending1 = Lc.saved.pending1;
+    Lc.saved = null;
+    ui.view = -1;
+    render();
+  }
+  function renderArchive() {
+    const host = $('archive');
+    const all = loadArchive();
+    host.innerHTML = '';
+    if (!all.length) { emptyLine(host, 'Партии появятся здесь, когда вы доиграете хотя бы одну.'); return; }
+    for (const rec of all) {
+      const row = li();
+      const who = rec.winner ? (rec.names[rec.winner] || 'Игрок ' + rec.winner) + ' победил' : 'ничья';
+      row.append(
+        info(who, cfgSummary(rec.cfg), fmtWhen(rec.when)),
+        btns(btn('Смотреть', { act: 'replay', id: rec.id }))
+      );
+      host.appendChild(row);
+    }
   }
 
   // ---------- Moves (shared entry point) ----------
@@ -382,8 +451,33 @@
     const cfg = curCfg();
     const take = ui.take >= 0 && E.canUnanchor(st, cfg, p, ui.take) ? ui.take : false;
     const m = { i: ui.sel, kind: ui.action, anchor: false, take, spent: overSpend(st, cfg) };
+    // Пауза перед отправкой: успеть одуматься, если нажал не глядя.
+    const wait = Math.max(0, Number(S.hold) || 0);
+    if (wait && timeLeft(st, cfg) > wait + 1) {
+      hold = { m, until: Date.now() + wait * 1000, p };
+      resetUi();
+      SFX.move();
+      render();
+      return;
+    }
     resetUi();
     SFX.move();
+    sendMove(m, p);
+  }
+
+  // Сколько секунд у игрока осталось всего: основное время плюс запас.
+  function timeLeft(st, cfg) {
+    if (!cfg.timer) return Infinity;
+    const seat = timerSeat();
+    if (!seat || !T.key) return Infinity;
+    const used = (Date.now() - T.start) / 1000;
+    const bank = cfg.bank ? (st.bank && st.bank[seat]) || 0 : 0;
+    return Math.max(0, cfg.timer - used) + bank;
+  }
+
+  function sendMove(m, p) {
+    const st = curSt(), cfg = curCfg();
+    if (!st) return;
     if (online()) { if (cfg.secret) commitMove(m); else onlineSeq(m); return; }
     if (cfg.secret) {
       if (Lc.phase === 'pick1') {
@@ -391,7 +485,13 @@
         if (S.opp === 'bot') localRound(m, botDecide(st, cfg, 2));
         else { Lc.phase = 'handoff'; render(); }
       } else if (Lc.phase === 'pick2') localRound(Lc.pending1, m);
-    } else localSeq(p, m);
+    } else localSeq(p || picker() || 1, m);
+  }
+
+  function dropHold() {
+    if (!hold) return;
+    hold = null;
+    render();
   }
 
   // ---------- Меню действий на клетке ----------
@@ -408,6 +508,14 @@
     if (can('magnet')) out.push({ kind: 'magnet', label: 'Притянуть по этому лучу', note: 'до 4 фишек' });
     // На самом якоре предлагаем забрать именно его, иначе — тот, что стоит дольше всех.
     const own = st.cells[i] === p && st.anchors.includes(i);
+    if (own) {
+      const age = E.anchorAge(st, cfg, i), left = E.ANCHOR_HOLD - age;
+      out.push({ info: true, label: 'Щит', note: 'соседние фишки не стареют' });
+      out.push({ info: true, label: 'Сдвиг', note: 'ломает стену, оставляет след' });
+      out.push({ info: true, label: 'Магнит', note: 'тянет по лучу до 4 фишек' });
+      out.push({ info: true, label: 'Выстрел', note: 'якорь не сбить' });
+      out.push({ info: true, label: 'Возврат', note: left > 0 ? 'через ' + left : 'доступен' });
+    }
     const which = own && E.canUnanchor(st, cfg, p, i) ? i : E.ripeAnchor(st, cfg, p);
     if (which >= 0) {
       const marked = ui.take === which;
@@ -433,8 +541,10 @@
     if (!items.length) return;
     const box = $('cellMenu');
     box.innerHTML = '<div class="mhead">Клетка ' + esc(cellName(st, i)) + '</div>' +
-      items.map((it, k) => '<button type="button" role="menuitem" data-k="' + k + '"' + (it.on ? ' class="on"' : '') + '>' +
-        '<span>' + esc(it.label) + '</span>' + (it.note ? '<small>' + esc(it.note) + '</small>' : '') + '</button>').join('');
+      items.map((it, k) => (it.info
+        ? '<span class="minfo"><span>' + esc(it.label) + '</span><small>' + esc(it.note || '') + '</small></span>'
+        : '<button type="button" role="menuitem" data-k="' + k + '"' + (it.on ? ' class="on"' : '') + '>' +
+          '<span>' + esc(it.label) + '</span>' + (it.note ? '<small>' + esc(it.note) + '</small>' : '') + '</button>')).join('');
     box.dataset.cell = String(i);
     menuItems = items;
     box.hidden = false;
@@ -1256,6 +1366,19 @@
   }
 
   function tickTimer() {
+    if (hold) {
+      if (Date.now() >= hold.until) {
+        const m = hold.m, p = hold.p;
+        hold = null;
+        sendMove(m, p);
+      } else if (R.route === 'play' || R.route === 'game') {
+        const left = Math.ceil((hold.until - Date.now()) / 1000);
+        const btn = $('confirm');
+        btn.hidden = false;
+        btn.disabled = false;
+        btn.textContent = 'Отменить · ' + left;
+      }
+    }
     const el = $('clock'), bk = $('bankClock');
     const key = timerKey();
     // Пауза (ход отправлен, идёт раскрытие) часы прячет, но отсчёт не сбрасывает:
@@ -1400,6 +1523,50 @@
     return O.plain;
   }
 
+  // Просмотр прошлого хода: рисуем снимок поля, без подсказок и подсветок.
+  function renderFrame(st, frame) {
+    ensureBoard(st.n);
+    const n = st.n, cells = frame.c.split('').map(Number);
+    const last = new Set(frame.l || []), scars = new Set(frame.s || []);
+    const sh = (pl) => ' sh-' + lookOf(pl).shape;
+    boardEl.classList.remove('live');
+    boardEl.classList.add('past');
+    for (let i = 0; i < n * n; i++) {
+      const v = cells[i];
+      let cls = 'cell', inner = '';
+      if (v === 3) cls += ' wall';
+      else if (v === 1 || v === 2) {
+        inner = '<span class="stone p' + v + sh(v) + '"></span>';
+        if (last.has(i)) cls += ' last';
+      } else {
+        cls += ' empty';
+        if (scars.has(i)) cls += ' scar s1';
+      }
+      const key = 'past|' + cls + '|' + inner;
+      if (cellKeys[i] !== key) {
+        const el = cellEls[i];
+        el.className = cls; el.innerHTML = inner;
+        el.setAttribute('aria-label', cellLabel(st, i, v));
+        cellKeys[i] = key;
+      }
+    }
+  }
+
+  function frames(st) { return (st && st.frames) || []; }
+  function viewFrame(st) {
+    const all = frames(st);
+    if (ui.view < 0 || !all.length) return null;
+    return all[Math.min(ui.view, all.length - 1)] || null;
+  }
+  function stepView(delta) {
+    const st = curSt(), all = frames(st);
+    if (!all.length) return;
+    const now = ui.view < 0 ? all.length - 1 : ui.view;
+    const next = now + delta;
+    ui.view = next >= all.length - 1 ? -1 : Math.max(0, next);
+    render();
+  }
+
   function renderBoard(st, cfg, p, human) {
     ensureBoard(st.n);
     const n = st.n, L = cfg.mem;
@@ -1418,7 +1585,10 @@
     const anchors = new Set(st.anchors);
     const winSet = new Set(st.winLine);
     const fresh = new Set(fx.fresh);
+    // Магнит и сдвиг якоря: фишка выезжает из прежней клетки, а не возникает на новой.
+    const slide = new Map((fx.slide || []).map(([a, b2]) => [b2, a]));
     const sh = (pl) => ' sh-' + lookOf(pl).shape;
+    boardEl.classList.remove('past');
     boardEl.classList.toggle('live', human);
     // Отправленный, но ещё не раскрытый ход рисуем призраком: видно, куда вы сходили.
     const pend = pendingMove(st, cfg);
@@ -1428,7 +1598,7 @@
     const fromCells = human && p && (ui.action === 'moveAnchor' || ui.action === 'magnet') ? E.anchorsOf(st, p) : [];
     for (let i = 0; i < n * n; i++) {
       const v = st.cells[i];
-      let cls = 'cell', inner = '';
+      let cls = 'cell', inner = '', style = '';
       const okHere = human && E.validTarget(st, cfg, p, i, ui.action);
       if (okHere) cls += ' ok';
       // Куда можно поставить или двинуть якорь — помечаем, иначе выбор неочевиден.
@@ -1446,9 +1616,14 @@
         const anchored = anchors.has(i);
         const l = anchored ? 0 : life.get(i);
         let sc = 'stone p' + v + sh(v);
-        if (fresh.has(i)) sc += ' pop';
+        const came = slide.get(i);
+        if (came !== undefined) {
+          const n2 = st.n;
+          sc += ' slide';
+          style = ' style="--dx: ' + ((came % n2) - (i % n2)) + '; --dy: ' + (((came / n2) | 0) - ((i / n2) | 0)) + '"';
+        } else if (fresh.has(i)) sc += ' pop';
         if (l === 1) { sc += ' fragile'; cls += ' frag'; } else if (l === 2) sc += ' worn';
-        inner = '<span class="' + sc + '"></span>';
+        inner = '<span class="' + sc + '"' + style + '></span>';
         if (anchored) { cls += ' anchored a' + v; inner += '<span class="badge">∞</span>'; }
         else if (l && l <= 3) inner += '<span class="badge">' + l + '</span>';
         if (winSet.has(i)) cls += ' win-p' + v;
@@ -1837,6 +2012,8 @@
     renderSettings();
     renderLooks();
     renderPalettes();
+    renderArchive();
+    $('backLive').hidden = !Lc.saved;
     if (route === 'rules') { renderRules(); return; }
     if (route === 'online') { renderHome(); return; }
     if (route === 'top') { renderTop(); return; }
@@ -1879,9 +2056,20 @@
       return;
     }
 
-    const p = picker();
-    const human = !!p && isHuman(p) && !busy;
-    renderBoard(st, cfg, p, human);
+    const all = frames(st);
+    const frame = viewFrame(st);
+    $('rewind').hidden = all.length < 2;
+    if (all.length > 1) {
+      const at = ui.view < 0 ? all.length - 1 : ui.view;
+      $('rewindAt').textContent = frame ? (frame.t || '') + ' · ' + (at + 1) + '/' + all.length : 'сейчас';
+      $('stepBack').disabled = at <= 0;
+      $('stepFwd').disabled = ui.view < 0;
+      $('stepLive').hidden = ui.view < 0;
+    }
+    const p = frame ? 0 : picker();
+    const human = !frame && !!p && isHuman(p) && !busy;
+    if (frame) renderFrame(st, frame);
+    else renderBoard(st, cfg, p, human);
     renderCover();
 
     $('round').textContent = cfg.secret ? 'Раунд ' + st.round : 'Ход ' + (st.moves + (st.over ? 0 : 1));
@@ -1933,6 +2121,15 @@
     }
 
     const cbtn = $('confirm');
+    if (hold) {
+      cbtn.hidden = false;
+      cbtn.disabled = false;
+      cbtn.textContent = 'Отменить · ' + Math.max(1, Math.ceil((hold.until - Date.now()) / 1000));
+      $('cancelMove').hidden = true;
+      $('tools').hidden = true;
+      tickTimer();
+      return;
+    }
     const waiting = canCancel();
     if (st.over) {
       cbtn.textContent = 'Ещё партия';
@@ -1985,18 +2182,15 @@
   function renderSkills(p, st, cfg, isOnline) {
     const host = $('skills' + p);
     const items = [];
-    if (cfg.mem) {
-      items.push({ t: 'Фишки', v: E.counted(st, p).length + '/' + cfg.mem });
-    }
     if (cfg.shots) items.push({ t: 'Выстрелы', v: st.shots[p], off: st.shots[p] === 0 });
     if (E.anchorOn(cfg)) {
       const on = E.anchorsOf(st, p);
-      if (on.length) items.push({ t: on.length > 1 ? 'Якоря' : 'Якорь', v: on.map((i) => cellName(st, i)).join(' ') });
-      if (st.anchorLeft[p]) items.push({ t: 'В запасе', v: st.anchorLeft[p] });
-      if (!on.length && !st.anchorLeft[p]) items.push({ t: 'Якорь', v: 0, off: true });
+      if (on.length) items.push({ t: on.length > 1 ? 'Якоря на' : 'Якорь на', v: on.map((i) => cellName(st, i)).join(', ') });
+      if (st.anchorLeft[p]) items.push({ t: 'Ещё якорей', v: st.anchorLeft[p] });
+      if (!on.length && !st.anchorLeft[p]) items.push({ t: 'Якорей', v: 0, off: true });
     }
     if (cfg.capture) items.push({ t: 'Пары', v: st.caps[p] + '/5' });
-    if (cfg.bank && st.bank) items.push({ t: 'Запас', v: fmtSpan(st.bank[p] || 0), off: !st.bank[p] });
+    if (cfg.bank && st.bank) items.push({ t: 'Время в запасе', v: fmtSpan(st.bank[p] || 0), off: !st.bank[p] });
     if (st.misses && st.misses[p]) items.push({ t: 'Пропуски', v: st.misses[p] + '/' + E.MISS_LIMIT });
     if (isOnline && cfg.secret && !st.over && O.game && O.game.p2 && seatDone(p)) items.push({ t: 'Ход сделан', v: '✓' });
     const key = JSON.stringify(items);
@@ -2114,6 +2308,7 @@
       save();
       if (key === 'theme') { render(); return; }
       if (key === 'sound') { if (val) SFX.join(); render(); return; }
+      if (key === 'hold') { render(); return; }
       if (key === 'opp') { Lc.score = { 1: 0, 2: 0, d: 0 }; Lc.starter = 2; newLocal(); return; }
       // Правила: на экране игры они перезапускают партию, в лобби — ждут новой.
       if (R.route !== 'play') { render(); return; }
@@ -2161,6 +2356,7 @@
     else if (act === 'delete-game') deleteGame(t.dataset.code || O.code);
     else if (act === 'ask-delete') askDelete(t.dataset.code || O.code);
     else if (act === 'ask-quit') askQuit(t.dataset.code);
+    else if (act === 'replay') openArchive(t.dataset.id);
   });
 
   window.addEventListener('hashchange', () => {
@@ -2204,7 +2400,11 @@
     openGame(code, true);
   });
   $('toLobby').addEventListener('click', () => { closeGame(); go('online'); });
-  $('confirm').addEventListener('click', confirmMove);
+  $('stepBack').addEventListener('click', () => stepView(-1));
+  $('stepFwd').addEventListener('click', () => stepView(1));
+  $('stepLive').addEventListener('click', () => { ui.view = -1; render(); });
+  $('backLive').addEventListener('click', closeArchive);
+  $('confirm').addEventListener('click', () => { if (hold) dropHold(); else confirmMove(); });
   $('cancelMove').addEventListener('click', cancelMove);
   $('newGame').addEventListener('click', () => { if (!online()) newLocal(); });
   $('actPlace').addEventListener('click', () => setAction('place'));
@@ -2223,6 +2423,14 @@
   $('actMove').addEventListener('click', () => setAction(ui.action === 'moveAnchor' ? 'place' : 'moveAnchor'));
   $('resignBtn').addEventListener('click', resign);
   $('resignOnline').addEventListener('click', resign);
+  const toggleDrawer = () => {
+    const box = $('drawer');
+    box.hidden = !box.hidden;
+    $('moreLocal').setAttribute('aria-pressed', box.hidden ? 'false' : 'true');
+    $('moreOnline').setAttribute('aria-pressed', box.hidden ? 'false' : 'true');
+  };
+  $('moreLocal').addEventListener('click', toggleDrawer);
+  $('moreOnline').addEventListener('click', toggleDrawer);
   $('soundBtn').addEventListener('click', () => {
     if (S.sound && S.volume > 0) S.sound = false;
     else { S.sound = true; if (!S.volume) S.volume = 70; SFX.move(); }

@@ -254,8 +254,44 @@ input:focus { outline: 0; border-color: var(--brand); background: var(--surface)
 .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
 .live-dot.on { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
 
-.playgrid { display: grid; grid-template-columns: minmax(0, 680px) minmax(0, 320px); gap: 20px; align-items: start; justify-content: center; }
-@media (max-width: 980px) { .playgrid { grid-template-columns: minmax(0, 1fr); } }
+/* Слева журнал, в центре поле, справа ход и игроки: ничего не надо прокручивать. */
+.playgrid {
+  display: grid; grid-template-columns: minmax(0, 250px) minmax(0, 620px) minmax(0, 310px);
+  gap: 18px; align-items: start; justify-content: center;
+}
+.playlog { display: flex; flex-direction: column; gap: 12px; min-width: 0; position: sticky; top: 78px; }
+.playlog .log { max-height: min(60vh, 520px); }
+@media (max-width: 1180px) {
+  .playgrid { grid-template-columns: minmax(0, 620px) minmax(0, 310px); }
+  .playlog { grid-column: 1 / -1; order: 3; position: static; }
+}
+@media (max-width: 980px) {
+  .playgrid { grid-template-columns: minmax(0, 1fr); }
+  .playmain { order: 1; }
+  .playside { order: 2; }
+  .playlog { order: 3; }
+}
+
+/* Настройки партии и оформления живут за кнопкой «три точки». */
+.drawer {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px;
+  animation: fade .16s ease-out;
+}
+.chip.more { font-size: 17px; line-height: 1; padding: 5px 11px; }
+.chip.more[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+/* Перемотка ходов. */
+.rewind { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.rewind .chip { padding: 5px 11px; font-size: 13px; }
+.rewind-at {
+  font-family: var(--mono); font-size: 12px; color: var(--muted); min-width: 56px; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.board.past { filter: saturate(.75); }
+.board.past::after {
+  content: ""; position: absolute; inset: 0; border-radius: var(--r); pointer-events: none;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--muted) 55%, transparent);
+}
 @media (max-width: 560px) { .playbar { border-radius: var(--r); padding: 10px 12px; } }
 .playmain { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .playside { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
@@ -309,6 +345,7 @@ input:focus { outline: 0; border-color: var(--brand); background: var(--surface)
 
 .board-wrap { position: relative; width: 100%; }
 .board {
+  position: relative;
   display: grid; gap: 2px; padding: 6px; background: var(--board);
   border-radius: var(--r); aspect-ratio: 1; width: 100%;
   box-shadow: var(--shadow);
@@ -756,6 +793,11 @@ input:focus { outline: 0; border-color: var(--brand); background: var(--surface)
 .cellmenu button:hover { background: var(--surface-2); }
 .cellmenu button:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
 .cellmenu button.on { color: var(--brand); font-weight: 600; }
+.cellmenu .minfo {
+  display: flex; justify-content: space-between; gap: 12px; padding: 5px 10px;
+  font-size: 12.5px; color: var(--muted);
+}
+.cellmenu .minfo + button { margin-top: 4px; border-top: 1px solid var(--rule); border-radius: 0 0 var(--r-sm) var(--r-sm); padding-top: 10px; }
 .cellmenu button small { color: var(--muted); font-size: 12px; }
 @keyframes popin { from { opacity: 0; transform: scale(.94); } }
 
@@ -814,3 +856,10 @@ input:focus { outline: 0; border-color: var(--brand); background: var(--surface)
 .doc p b { color: var(--ink); font-weight: 600; }
 .doc p span { color: var(--ink); }
 .help[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+/* Фишка приезжает из прежней клетки: видно, как сработал магнит. */
+.stone.slide { animation: slide .38s cubic-bezier(.25, .9, .3, 1) both; }
+@keyframes slide {
+  from { transform: translate(calc(var(--dx, 0) * 102%), calc(var(--dy, 0) * 102%)); }
+  to { transform: translate(0, 0); }
+}
