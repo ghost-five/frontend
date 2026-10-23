@@ -30,7 +30,7 @@
     { id: 'forest', name: 'Лес', a: '#2AA873', b: '#67C993', pair: ['sky', 'coral'] },
     { id: 'sunset', name: 'Закат', a: '#E0702F', b: '#F0A14E', pair: ['sky', 'lemon'] },
     { id: 'violet', name: 'Сумерки', a: '#7C52DC', b: '#B06BE4', pair: ['teal', 'coral'] },
-    { id: 'mono', name: 'Графит', a: '#5A6782', b: '#8C97AE', pair: ['snow', 'lemon'] }
+    { id: 'mono', name: 'Графит', a: '#5A6782', b: '#8C97AE', pair: ['violet', 'snow'] }
   ];
   const SHAPES = [
     { id: 'circle', name: 'Круг' }, { id: 'ring', name: 'Кольцо' }, { id: 'square', name: 'Квадрат' },
