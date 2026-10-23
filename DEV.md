@@ -77,8 +77,9 @@ gameNo | round | i | kind | anchor(0/1) | take(-1 или клетка) | spent |
 
 ## Контракт будущего API
 
-Контракт живёт в соседнем репозитории `backend`, в каталоге `docs/api`: OpenAPI для
-HTTP, описание сообщений WebSocket и JSON Schema состояния партии. По нему
+Контракт живёт в репозитории [ghost-five/backend](https://github.com/ghost-five/backend),
+в каталоге `docs/api`: OpenAPI для HTTP, описание сообщений WebSocket и JSON Schema
+состояния партии. По нему
 генерируются типы и для Go, и для TypeScript; руками их не пишем.
 
 Схема состояния проверяется здесь, на золотых тестах: `node tools/schema-check.mjs`.

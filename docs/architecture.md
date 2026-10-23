@@ -6,7 +6,7 @@
 ## 0. Что решили
 
 - **Фронт** — React + TypeScript + Vite, переносим экран за экраном, поле последним.
-- **Репозитории** — два, в организации: `frontend` и `backend`.
+- **Репозитории** — два в организации `ghost-five`: `frontend` и `backend`. Заведены.
 - **Хостинг** — своя ВМ, своё всё: Postgres, аккаунты, письма через SMTP Яндекса.
   Supabase выключаем, когда переезд закончится.
 - **Первым делом** — золотые тесты движка. Сделано: `fixtures/` и
@@ -132,6 +132,10 @@
 ## 5. Репозитории: два в организации
 
 Организация на GitHub даёт общие права, секреты и Actions на всех. Репозитория два.
+
+Организация [ghost-five](https://github.com/ghost-five): репозитории
+[frontend](https://github.com/ghost-five/frontend) и
+[backend](https://github.com/ghost-five/backend).
 
 ```
 ghost-five/frontend                ghost-five/backend
