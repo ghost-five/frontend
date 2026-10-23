@@ -14,7 +14,7 @@
   const ANCHOR_HOLD = 5;
   // Якорей на игрока, дальность магнита и срок следа, который остаётся после сдвига.
   const ANCHORS = 2;
-  const MAGNET_RANGE = 5;
+  const MAGNET_RANGE = 3;
   const ECHO_TTL = 1;
   // Сколько ходов подряд надо уложиться в основное время, чтобы запас вернулся.
   const BANK_STREAK = 3;

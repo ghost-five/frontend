@@ -497,6 +497,14 @@
     render();
   }
 
+  // Ждать отсчёт необязательно: «Подтвердить» отправляет ход сразу.
+  function sendHoldNow() {
+    if (!hold) return;
+    const m = hold.m, p = hold.p;
+    hold = null;
+    sendMove(m, p);
+  }
+
   // ---------- Меню действий на клетке ----------
   // Правая кнопка (или долгое нажатие) показывает, что можно сделать именно с этой клеткой.
   function cellMenuItems(st, cfg, p, i) {
@@ -1380,7 +1388,7 @@
         const btn = $('confirm');
         btn.hidden = false;
         btn.disabled = false;
-        btn.textContent = 'Отменить · ' + left;
+        btn.textContent = 'Подтвердить · ' + left;
       }
     }
     const el = $('clock'), bk = $('bankClock');
@@ -1987,7 +1995,7 @@
     const cfg = curCfg() || S;
     $('docRow').textContent = E.rowLen(cfg) === 4 ? 'четыре фишки' : 'пять фишек';
     $('docAnchors').textContent = E.ANCHORS === 2 ? 'два' : String(E.ANCHORS);
-    $('docRange').textContent = String(E.MAGNET_RANGE);
+    $('docRange').textContent = E.MAGNET_RANGE + ' ' + plural(E.MAGNET_RANGE, 'клетку', 'клетки', 'клеток');
     $('docHold').textContent = String(E.ANCHOR_HOLD);
     $('docMiss').textContent = E.MISS_LIMIT + ' пропуска подряд';
   }
@@ -2137,8 +2145,10 @@
     if (hold) {
       cbtn.hidden = false;
       cbtn.disabled = false;
-      cbtn.textContent = 'Отменить · ' + Math.max(1, Math.ceil((hold.until - Date.now()) / 1000));
-      $('cancelMove').hidden = true;
+      cbtn.textContent = 'Подтвердить · ' + Math.max(1, Math.ceil((hold.until - Date.now()) / 1000));
+      const back = $('cancelMove');
+      back.hidden = false;
+      back.textContent = 'Отмена';
       $('tools').hidden = true;
       renderBoard(st, cfg, 0, false);
       tickTimer();
@@ -2155,7 +2165,9 @@
     // Пока открыта ширма с итогом, вторая кнопка «Ещё партия» под доской лишняя.
     const onCover = st.over && O.hideResult !== resultKey(st);
     cbtn.hidden = waiting || onCover;
-    $('cancelMove').hidden = !waiting;
+    const back = $('cancelMove');
+    back.hidden = !waiting;
+    back.textContent = 'Отменить ход';
     $('newGame').hidden = st.over;
     const fresh = notStarted(st);
     const canResign = !st.over && !fresh && (isOnline ? !!mySeat() && !!O.game.p2 : true);
@@ -2256,8 +2268,11 @@
 
   function renderSettings() {
     const st = curSt();
-    const locked = online() && !!O.game && !(st && st.over);
-    const src = locked ? O.game.cfg : S;
+    // Правила меняют до первого хода и после партии: посреди неё они зафиксированы.
+    const playing = !!st && !st.over && !notStarted(st);
+    const locked = R.route !== 'online' && (playing || (online() && !!O.game && !st.over));
+    // В идущей партии показываем её правила, иначе — выбранные для следующей.
+    const src = online() && O.game ? O.game.cfg : locked && Lc.cfg ? Lc.cfg : S;
     document.querySelectorAll('.seg').forEach((seg) => {
       const key = seg.dataset.key;
       if (!key) return;
@@ -2279,9 +2294,10 @@
     ['set-size', 'set-win', 'set-secret', 'set-mem', 'set-shots', 'set-capture', 'set-timer'].forEach((id) => $(id).classList.toggle('dim', locked));
     $('rulesCard').classList.toggle('locked', locked);
     $('rulesBrief').textContent = cfgSummary(src);
-    $('rulesNote').textContent = locked ? cfgSummary(src) + '. Правила выбрал создатель партии.'
+    $('rulesNote').textContent = locked
+      ? cfgSummary(src) + '. ' + (online() ? 'Правила выбрал создатель партии.' : 'Партия идёт: правила можно будет поменять после неё.')
       : R.route === 'online' ? 'Эти правила получит партия, которую вы создадите.'
-      : online() ? 'Партия окончена: эти правила получит следующая.'
+      : st && st.over ? 'Эти правила получит следующая партия — нажмите «Ещё партия».'
       : 'Смена правил сразу начинает новую партию.';
   }
 
@@ -2345,8 +2361,9 @@
       if (key === 'sound') { if (val) SFX.join(); render(); return; }
       if (key === 'hold') { render(); return; }
       if (key === 'opp') { Lc.score = { 1: 0, 2: 0, d: 0 }; Lc.starter = 2; newLocal(); return; }
-      // Правила: на экране игры они перезапускают партию, в лобби — ждут новой.
+      // Правила: до первого хода перезапускают партию, после неё — ждут «Ещё партия».
       if (R.route !== 'play') { render(); return; }
+      if (Lc.st && Lc.st.over) { render(); return; }
       Lc.starter = 2;
       newLocal();
     });
@@ -2440,8 +2457,8 @@
   $('stepFwd').addEventListener('click', () => stepView(1));
   $('stepLive').addEventListener('click', () => { ui.view = -1; render(); });
   $('backLive').addEventListener('click', closeArchive);
-  $('confirm').addEventListener('click', () => { if (hold) dropHold(); else confirmMove(); });
-  $('cancelMove').addEventListener('click', cancelMove);
+  $('confirm').addEventListener('click', () => { if (hold) sendHoldNow(); else confirmMove(); });
+  $('cancelMove').addEventListener('click', () => { if (hold) dropHold(); else cancelMove(); });
   $('newGame').addEventListener('click', () => { if (!online()) newLocal(); });
   $('actPlace').addEventListener('click', () => setAction('place'));
   $('actShot').addEventListener('click', () => setAction(ui.action === 'shot' ? 'place' : 'shot'));
@@ -2459,14 +2476,11 @@
   $('actMove').addEventListener('click', () => setAction(ui.action === 'moveAnchor' ? 'place' : 'moveAnchor'));
   $('resignBtn').addEventListener('click', resign);
   $('resignOnline').addEventListener('click', resign);
-  const toggleDrawer = () => {
+  $('moreLocal').addEventListener('click', () => {
     const box = $('drawer');
     box.hidden = !box.hidden;
-    $('moreLocal').setAttribute('aria-pressed', box.hidden ? 'false' : 'true');
-    $('moreOnline').setAttribute('aria-pressed', box.hidden ? 'false' : 'true');
-  };
-  $('moreLocal').addEventListener('click', toggleDrawer);
-  $('moreOnline').addEventListener('click', toggleDrawer);
+    $('moreLocal').setAttribute('aria-expanded', box.hidden ? 'false' : 'true');
+  });
   $('soundBtn').addEventListener('click', () => {
     if (S.sound && S.volume > 0) S.sound = false;
     else { S.sound = true; if (!S.volume) S.volume = 70; SFX.move(); }
