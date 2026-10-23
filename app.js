@@ -76,7 +76,7 @@
 
   // ---------- Controller state ----------
   // Разделы приложения: вход, игра на этом устройстве, лобби, онлайн-партия, вид, профиль.
-  const ROUTES = ['auth', 'play', 'online', 'game', 'top', 'look', 'profile', 'rules'];
+  const ROUTES = ['auth', 'play', 'online', 'game', 'top', 'look', 'profile', 'rules', 'archive'];
   const TABS = ['play', 'online', 'top', 'look', 'profile'];
   const R = { route: 'auth' };
   const online = () => R.route === 'game';
@@ -378,10 +378,12 @@
     Lc.st = replayState(rec);
     Lc.cfg = rec.cfg;
     Lc.phase = 'pick';
-    ui.view = 0;
     O.hideResult = 'archive';
     if (online()) { closeGame(); }
     go('play');
+    // Позицию ставим после перехода: смена раздела сбрасывает выбор.
+    ui.view = 0;
+    render();
   }
   function closeArchive() {
     if (!Lc.saved) return;
@@ -698,6 +700,7 @@
       if (!O.recovery) { O.authView = 'login'; O.authMsg = ''; O.authErr = false; }
       loadProfile();
       startHome();
+      loadTop();
       if (pendingCode && !O.recovery) { const c = pendingCode; setPending(''); openGame(c, true); return; }
       go(O.recovery ? 'auth' : routeFromHash() || 'play');
       return;
@@ -1511,7 +1514,7 @@
   }
   function cellLabel(st, i, v) {
     const n = st.n, r = ((i / n) | 0) + 1, c = (i % n) + 1;
-    const what = v === 1 || v === 2 ? 'фишка, ' + colorOf(v).nom : v === 3 ? 'стена' : 'пусто';
+    const what = v === 1 || v === 2 ? 'фишка: ' + names()[v] : v === 3 ? 'стена' : 'пусто';
     return 'Строка ' + r + ', столбец ' + c + ': ' + what;
   }
 
@@ -1592,6 +1595,8 @@
     boardEl.classList.toggle('live', human);
     // Отправленный, но ещё не раскрытый ход рисуем призраком: видно, куда вы сходили.
     const pend = pendingMove(st, cfg);
+    // Пока идёт отсчёт, показываем, что именно задумано.
+    const intent = hold ? hold.m : null;
     const me = mySeat() || p;
     const aim = (kind) => kind === 'shot' || kind === 'unanchor';
     const sign = (kind) => kind === 'anchor' || kind === 'moveAnchor';
@@ -1640,6 +1645,12 @@
         if (aim(ui.action)) inner += '<span class="aim"></span>';
         else if (v === 0) inner += '<span class="stone p' + p + sh(p) + ' ghost"></span>';
         if (sign(ui.action)) inner += '<span class="badge mark">∞</span>';
+      }
+      if (intent && intent.i === i) {
+        cls += ' intent';
+        if (aim(intent.kind)) inner += '<span class="aim"></span>';
+        else if (v === 0) inner += '<span class="stone p' + me + sh(me) + ' ghost"></span>';
+        if (sign(intent.kind)) inner += '<span class="badge mark">∞</span>';
       }
       if (pend && pend.i === i) {
         cls += ' pending';
@@ -1925,7 +1936,7 @@
     if (!signedIn()) { R.route = 'auth'; return; }
     if (R.route === 'auth') R.route = 'play';
     if (R.route === 'game' && !O.code) R.route = 'online';
-    if (!O.myId && R.route !== 'play' && R.route !== 'look' && R.route !== 'rules') R.route = 'play';
+    if (!O.myId && !['play', 'look', 'rules', 'archive'].includes(R.route)) R.route = 'play';
     if (O.myId && O.profile !== undefined && (!O.profile || !NICK_RE.test(O.profile.nickname))) R.route = 'profile';
   }
 
@@ -1957,6 +1968,7 @@
     const tab = route === 'game' ? 'online' : route;
     $('appbar').hidden = route === 'auth';
     document.querySelector('.help').setAttribute('aria-pressed', route === 'rules' ? 'true' : 'false');
+    document.querySelector('.hist').setAttribute('aria-pressed', route === 'archive' ? 'true' : 'false');
     document.querySelectorAll('#tabs .tab').forEach((b) => {
       const nav = b.dataset.nav;
       b.hidden = !O.myId && (nav === 'online' || nav === 'profile' || nav === 'top');
@@ -2004,6 +2016,7 @@
     $('screenTop').hidden = route !== 'top';
     $('screenLook').hidden = route !== 'look';
     $('screenRules').hidden = route !== 'rules';
+    $('screenArchive').hidden = route !== 'archive';
     $('screenProfile').hidden = route !== 'profile';
     renderNav(route);
     renderSound();
@@ -2012,9 +2025,9 @@
     renderSettings();
     renderLooks();
     renderPalettes();
-    renderArchive();
     $('backLive').hidden = !Lc.saved;
     if (route === 'rules') { renderRules(); return; }
+    if (route === 'archive') { renderArchive(); return; }
     if (route === 'online') { renderHome(); return; }
     if (route === 'top') { renderTop(); return; }
     if (route === 'profile') { renderProfile(); return; }
@@ -2127,6 +2140,7 @@
       cbtn.textContent = 'Отменить · ' + Math.max(1, Math.ceil((hold.until - Date.now()) / 1000));
       $('cancelMove').hidden = true;
       $('tools').hidden = true;
+      renderBoard(st, cfg, 0, false);
       tickTimer();
       return;
     }
@@ -2169,48 +2183,55 @@
     renderLog(st);
   }
 
-  // Карточка игрока: запас времени полоской, расходуемое точками, редкое метками.
+  // Карточка игрока — одна строка: кто, его место, запасы и счёт побед.
+  const ICONS = {
+    shot: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.6"/></svg>',
+    anchor: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="3" r="2"/><path d="M8 5v9M4 9c0 3 2 5 4 5s4-2 4-5M4.5 8.5h7"/></svg>',
+    clock: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 4.6V8l2.4 1.6"/></svg>',
+    pair: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="5.5" cy="8" r="2.6"/><circle cx="10.5" cy="8" r="2.6"/></svg>',
+    miss: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>'
+  };
+  // Место в таблице лидеров: первая тройка получает свой цвет.
+  function placeOf(uid) {
+    if (!uid || !O.top.length) return 0;
+    const k = O.top.findIndex((r) => r.id === uid);
+    return k >= 0 && k < 3 ? k + 1 : 0;
+  }
+
   function renderCard(p, st, cfg, isOnline, score) {
     const host = $('card' + p);
     const nm = names()[p];
     const uid = isOnline && O.game ? (p === 1 ? O.game.p1 : O.game.p2) : null;
     const elo = uid ? O.ratings[uid] : null;
-    const rows = [];
-    const dots = (total, full) => {
-      let out = '<span class="dots">';
-      for (let k = 0; k < total; k++) out += '<i' + (k < full ? '' : ' class="off"') + '></i>';
-      return out + '</span>';
-    };
-    if (cfg.bank && st.bank) {
-      const left = st.bank[p] || 0, part = Math.max(0, Math.min(100, (left / cfg.bank) * 100));
-      rows.push({ t: 'Запас', body: '<span class="track"><span style="width:' + part.toFixed(0) + '%"></span></span>',
-        v: fmtSpan(left), low: left <= 10 });
-    }
-    if (cfg.shots) {
-      rows.push({ t: 'Выстрелы', body: dots(cfg.shots, st.shots[p]), v: st.shots[p] + '/' + cfg.shots, low: !st.shots[p] });
-    }
+    const place = uid ? placeOf(uid) : 0;
+    const bits = [];
+    const add = (icon, text, title, off) =>
+      bits.push('<span class="bit' + (off ? ' off' : '') + '" title="' + esc(title) + '">' + ICONS[icon] + '<b>' + esc(text) + '</b></span>');
+    if (cfg.shots) add('shot', String(st.shots[p]), 'Выстрелы: ' + st.shots[p] + ' из ' + cfg.shots, !st.shots[p]);
     if (E.anchorOn(cfg)) {
       const on = E.anchorsOf(st, p);
-      const where = on.length ? on.map((i) => cellName(st, i)).join(' ') : st.anchorLeft[p] ? 'в запасе' : '—';
-      rows.push({ t: on.length > 1 ? 'Якоря' : 'Якорь', body: dots(E.ANCHORS, on.length), v: where, low: !on.length && !st.anchorLeft[p] });
+      const where = on.length ? on.map((i) => cellName(st, i)).join(', ') : 'нет на поле';
+      add('anchor', on.length + (st.anchorLeft[p] ? '+' + st.anchorLeft[p] : ''), 'Якоря: ' + where + (st.anchorLeft[p] ? ', в запасе ' + st.anchorLeft[p] : ''), !on.length && !st.anchorLeft[p]);
     }
-    const tags = [];
-    if (cfg.capture) tags.push({ t: 'Пары ' + st.caps[p] + '/5' });
-    if (st.misses && st.misses[p]) tags.push({ t: 'Пропуск ' + st.misses[p] + '/' + E.MISS_LIMIT });
-    if (isOnline && cfg.secret && !st.over && O.game && O.game.p2 && seatDone(p)) tags.push({ t: 'Ход сделан', go: true });
+    if (cfg.bank && st.bank) {
+      const left = st.bank[p] || 0;
+      add('clock', fmtSpan(left), 'Запас времени', left <= 10);
+    }
+    if (cfg.capture) add('pair', st.caps[p] + '/5', 'Захвачено пар', !st.caps[p]);
+    if (st.misses && st.misses[p]) add('miss', st.misses[p] + '/' + E.MISS_LIMIT, 'Пропущено ходов подряд');
+    const turn = isOnline && cfg.secret && !st.over && O.game && O.game.p2 && seatDone(p);
 
-    const key = JSON.stringify([nm, elo, lookOf(p), colorOf(p).nom, rows, tags, score[p]]);
+    const key = JSON.stringify([nm, elo, place, lookOf(p), bits, score[p], turn]);
     if (host.dataset.key === key) return;
     host.dataset.key = key;
+    host.className = 'pcard p' + p + (place ? ' medal m' + place : '');
     host.innerHTML =
-      '<div class="headline">' +
-        '<span class="ico"><span class="stone p' + p + ' sh-' + lookOf(p).shape + '"></span></span>' +
-        '<span class="nm">' + esc(nm) + '</span>' +
-        '<span class="score">' + score[p] + '</span>' +
-      '</div>' +
-      '<div class="sub">' + esc(colorOf(p).nom) + (elo ? ' · ' + elo : '') + '</div>' +
-      rows.map((r) => '<div class="gauge' + (r.low ? ' low' : '') + '"><span>' + esc(r.t) + '</span>' + r.body + '<b>' + esc(r.v) + '</b></div>').join('') +
-      (tags.length ? '<div class="tags">' + tags.map((x) => '<span class="tag' + (x.go ? ' go' : '') + '">' + esc(x.t) + '</span>').join('') + '</div>' : '');
+      '<span class="ico"><span class="stone p' + p + ' sh-' + lookOf(p).shape + '"></span></span>' +
+      '<span class="nm">' + esc(nm) + '</span>' +
+      (elo ? '<span class="elo"' + (place ? ' title="' + place + '-е место в таблице лидеров"' : '') + '>' + elo + '</span>' : '') +
+      (turn ? '<span class="done" title="Ход сделан">✓</span>' : '') +
+      '<span class="bits">' + bits.join('') + '</span>' +
+      '<span class="score" title="Побед в этой серии">' + score[p] + '</span>';
   }
 
   function renderTop() {
@@ -2350,6 +2371,7 @@
     if (act === 'copy') copyLink();
     else if (act === 'share') shareLink();
     else if (act === 'help') go('rules');
+    else if (act === 'archive') go('archive');
     else if (act === 'rules-back') go(O.code ? 'game' : 'play');
     else if (act === 'reveal' && Lc.phase === 'handoff') { Lc.phase = 'pick2'; render(); }
     else if (act === 'again') confirmMove();

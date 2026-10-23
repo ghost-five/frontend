@@ -40,6 +40,7 @@
         </button>
         <input id="volume" class="vol-range" type="range" min="0" max="100" step="5" value="70" aria-label="Громкость">
       </span>
+      <button class="chip hist" type="button" data-act="archive" title="История партий" aria-label="История партий"><span>История</span></button>
       <button class="chip help" type="button" data-act="help" title="Как играть" aria-label="Как играть"><span>Как играть</span></button>
       <b id="meNickTop"></b>
       <button class="linkbtn" type="button" data-act="signout">Выйти</button>
@@ -128,15 +129,6 @@
       <span class="gb-note" id="gbNote" hidden></span>
     </div>
 
-    <div class="drawer" id="drawer" hidden>
-      <div id="rulesSlotPlay"></div>
-      <div id="looksSlotPlay"></div>
-      <section class="card" id="archiveCard">
-        <h3 class="card-title">Сыгранные партии</h3>
-        <ul class="glist" id="archive"></ul>
-      </section>
-    </div>
-
     <div class="playgrid">
       <aside class="playlog">
         <details class="card fold" id="logPanel" open>
@@ -198,6 +190,23 @@
         <p class="draws" id="draws">Ничьих: 0</p>
       </aside>
     </div>
+
+    <div class="drawer" id="drawer" hidden>
+      <div id="rulesSlotPlay"></div>
+      <div id="looksSlotPlay"></div>
+    </div>
+  </section>
+
+  <!-- История партий -->
+  <section class="screen" id="screenArchive" hidden>
+    <div class="screen-head">
+      <h2>История партий</h2>
+      <p class="sub">Доигранные партии с ботом и на одном устройстве. Сетевые лежат в разделе «По сети».</p>
+    </div>
+    <section class="card">
+      <ul class="glist" id="archive"></ul>
+    </section>
+    <p><button class="btn ghost" type="button" data-act="rules-back">Вернуться к игре</button></p>
   </section>
 
   <!-- По сети: друзья, приглашения, партии -->
@@ -295,13 +304,13 @@
           <p><b>Если не успели:</b> выбранная клетка всё равно уходит в ход. Если ничего не выбрано, ход пропускается.</p>
           <p><b id="docMiss">Три пропуска подряд</b> — поражение. Любой сделанный ход обнуляет счётчик.</p>
           <p><b>Запас возвращается.</b> Три хода подряд, уложившись в основное время, — и запас снова полон.</p>
-          <p><b>Пауза перед ходом.</b> После «Сделать ход» есть несколько секунд, чтобы передумать: кнопка превращается в «Отменить» с обратным отсчётом. Длительность настраивается в «Интерфейсе».</p>
+          <p><b>Пауза перед ходом.</b> После «Сделать ход» есть несколько секунд, чтобы передумать: кнопка превращается в «Отменить» с обратным отсчётом, а задуманный ход мигает на поле. Длительность настраивается в «Интерфейсе».</p>
         </section>
 
         <section class="card doc">
           <h3 class="card-title">Нотация и журнал</h3>
           <p><b>Перемотка.</b> Стрелки над журналом показывают, как поле выглядело на прошлых ходах; «К текущему» возвращает в игру. Пока вы смотрите прошлое, ходить нельзя.</p>
-          <p><b>Архив.</b> Доигранные партии с ботом и на одном устройстве сохраняются в «три точки» → «Сыгранные партии»: их можно открыть и пролистать по ходам. Сетевые партии остаются в списке «Мои партии».</p>
+          <p><b>Архив.</b> Доигранные партии с ботом и на одном устройстве открываются кнопкой «История» в верхней панели: их можно пролистать по ходам. Сетевые партии остаются в списке «Мои партии».</p>
           <p>Столбцы подписаны буквами (без «I», чтобы не путать с единицей), строки — цифрами снизу вверх, как на шахматной доске. В журнале каждый ход записан адресом клетки, а ники подсвечены цветом игрока. Наведите мышь на адрес — соответствующая клетка подсветится на поле.</p>
         </section>
 
