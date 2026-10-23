@@ -7,6 +7,22 @@
 
 - `migrations/0001_init.sql` — схема базы. Проверена на Postgres 16: применяется,
   откатывается, ограничения и каскады работают.
+- `src/` — каркас сервера. Пока отвечает только «жив» (`/healthz`), но этого хватает,
+  чтобы собрать образ, выложить его и убедиться, что конвейер работает целиком.
+- `Dockerfile`, `deploy/` — боевая сборка и выкладка, см. [deploy/README.md](deploy/README.md).
+
+## Поднять у себя
+
+```
+docker compose -f deploy/compose.dev.yml up -d db
+docker compose -f deploy/compose.dev.yml run --rm migrate
+docker compose -f deploy/compose.dev.yml up -d --build api
+curl localhost:8080/api/v1/healthz
+```
+
+Проверено целиком: база поднимается, миграции применяются, сервер отвечает,
+healthcheck в контейнере становится `healthy`. Убрать за собой —
+`docker compose -f deploy/compose.dev.yml down -v`.
 
 ## Что переедет сюда при разделении
 
