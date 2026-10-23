@@ -98,8 +98,8 @@
   const Lc = { st: null, cfg: null, phase: 'pick', pending1: null, score: { 1: 0, 2: 0, d: 0 }, starter: 2 };
   const ui = { sel: null, action: 'place', take: -1, view: -1, from: -1 };
   // Ход, отложенный на пару секунд: его ещё можно отменить.
-  let hold = null;
-  let busy = false;
+  // Ход, отложенный паузой, и «идёт обработка»: их видит и игра, и отрисовка.
+  const Turn = { hold: null, busy: false };
   const O = {
     // account
     authReady: false, myId: null, email: '', profile: undefined, recovery: false, guest: false,
@@ -117,9 +117,10 @@
     msg: ''
   };
   const params = new URLSearchParams(location.search);
-  let pendingCode = (params.get('g') || lsGet('ghost5-pending') || '').toUpperCase();
-  if (!CODE_RE.test(pendingCode)) pendingCode = '';
-  function setPending(code) { pendingCode = code || ''; lsSet('ghost5-pending', code || null); }
+  // Код партии из ссылки: ждёт входа в аккаунт.
+  const Pending = { code: (params.get('g') || lsGet('ghost5-pending') || '').toUpperCase() };
+  if (!CODE_RE.test(Pending.code)) Pending.code = '';
+  function setPending(code) { Pending.code = code || ''; lsSet('ghost5-pending', code || null); }
 
   // ---------- Навигация по разделам ----------
   const signedIn = () => (!!O.myId && !O.recovery) || O.guest;
@@ -263,7 +264,7 @@
       case 'anchorMove': return [nameRef(e.p), ': якорь', ...at(e.from, ' '), ...at(e.i, ' → '), e.wall ? ', стена сломана.' : '.'];
       case 'magnet': return [nameRef(e.p), ': магнит', ...at(e.from, ' от якоря '), e.n ? ' притянул фишек: ' + e.n + '.' : ' сработал вхолостую.'];
       case 'magnetClash': return ['Оба якоря схватились за одну фишку', ...at(e.i, ' '), ' — магниты сорвались и остынут через ' + (e.cd || E.MAGNET_CD) + ' хода.'];
-      case 'unanchor': return [nameRef(e.p), ': якорь', ...at(e.i, ' с '), ' убран в запас.'];
+      case 'unanchor': return [nameRef(e.p), ': якорь', ...at(e.i, ' с '), ' убран в запас, фишка осталась на поле.'];
       case 'hit': return [nameRef(e.p), e.guessed ? ': ход угадан, фишка' : ': выстрел, фишка', ...at(e.i, ' '), ' сбита.'];
       case 'miss': return [nameRef(e.p), ': выстрел мимо', ...at(e.i, ', '), '.'];
       case 'anchorMiss': return [nameRef(e.p), ': выстрел в якорь', ...at(e.i, ' '), ' — его не сбить.'];
@@ -326,7 +327,7 @@
     Lc.cfg = pickCfg(S);
     Lc.st = E.make(Lc.cfg, Lc.starter, 1);
     Lc.phase = Lc.cfg.secret ? 'pick1' : 'pick';
-    Lc.pending1 = null; busy = false;
+    Lc.pending1 = null; Turn.busy = false;
     resetUi();
     render();
     maybeBot();
@@ -358,10 +359,10 @@
   function maybeBot() {
     const st = Lc.st;
     if (online() || S.opp !== 'bot' || st.over || Lc.cfg.secret || st.turn !== 2) return;
-    busy = true;
+    Turn.busy = true;
     render();
     setTimeout(() => {
-      busy = false;
+      Turn.busy = false;
       if (Lc.st !== st || S.opp !== 'bot') { render(); return; }
       localSeq(2, botDecide(st, Lc.cfg, 2));
     }, 650);
@@ -510,7 +511,7 @@
   });
   function onCell(i) {
     const st = curSt();
-    if (!st || st.over || busy) return;
+    if (!st || st.over || Turn.busy) return;
     const p = picker();
     if (!p || !isHuman(p) || !E.validTarget(st, curCfg(), p, i, ui.action, magnetFrom())) return;
     // Повторное нажатие снимает выбор: ход уходит только кнопкой.
@@ -522,7 +523,7 @@
 
   function setAction(a) {
     const st = curSt(), cfg = curCfg(), p = picker();
-    if (!st || !p || !isHuman(p) || busy) return;
+    if (!st || !p || !isHuman(p) || Turn.busy) return;
     if (a === 'shot' && !E.canShoot(st, cfg, p)) return;
     if (a === 'moveAnchor' && E.anchorOf(st, p) < 0) return;
     if (a === 'anchor' && !E.canAnchor(st, cfg, p)) return;
@@ -540,14 +541,14 @@
       return;
     }
     const p = picker();
-    if (!p || !isHuman(p) || ui.sel === null || busy) return;
+    if (!p || !isHuman(p) || ui.sel === null || Turn.busy) return;
     const cfg = curCfg();
     const take = ui.take >= 0 && E.canUnanchor(st, cfg, p, ui.take) ? ui.take : false;
     const m = { i: ui.sel, kind: ui.action, anchor: false, take, spent: overSpend(st, cfg), from: magnetFrom() };
     // Пауза перед отправкой: успеть одуматься, если нажал не глядя.
     const wait = HOLD;
     if (wait && timeLeft(st, cfg) > wait + 1) {
-      hold = { m, until: Date.now() + wait * 1000, p };
+      Turn.hold = { m, until: Date.now() + wait * 1000, p };
       resetUi();
       SFX.move();
       render();
@@ -582,16 +583,16 @@
   }
 
   function dropHold() {
-    if (!hold) return;
-    hold = null;
+    if (!Turn.hold) return;
+    Turn.hold = null;
     render();
   }
 
   // Ждать отсчёт необязательно: «Подтвердить» отправляет ход сразу.
   function sendHoldNow() {
-    if (!hold) return;
-    const m = hold.m, p = hold.p;
-    hold = null;
+    if (!Turn.hold) return;
+    const m = Turn.hold.m, p = Turn.hold.p;
+    Turn.hold = null;
     sendMove(m, p);
   }
 
@@ -635,7 +636,7 @@
   function openCellMenu(i, x, y) {
     const st = curSt(), cfg = curCfg(), p = picker();
     closeCellMenu();
-    if (!st || st.over || busy || !p || !isHuman(p)) return;
+    if (!st || st.over || Turn.busy || !p || !isHuman(p)) return;
     const items = cellMenuItems(st, cfg, p, i);
     if (!items.length) return;
     const box = $('cellMenu');
@@ -660,7 +661,7 @@
   let menuItems = [];
   function chooseMove(i, kind) {
     const st = curSt(), cfg = curCfg(), p = picker();
-    if (!st || !p || !isHuman(p) || busy || !E.validTarget(st, cfg, p, i, kind)) return;
+    if (!st || !p || !isHuman(p) || Turn.busy || !E.validTarget(st, cfg, p, i, kind)) return;
     ui.action = kind;
     ui.sel = i;
     render();
@@ -827,7 +828,7 @@
     if (/signups not allowed|Signups not allowed/i.test(m)) return 'Регистрация в проекте выключена (Supabase → Authentication → Sign In / Providers).';
     return errText(error);
   }
-  function redirectUrl() { return siteUrl() + (pendingCode ? '?g=' + pendingCode : ''); }
+  function redirectUrl() { return siteUrl() + (Pending.code ? '?g=' + Pending.code : ''); }
 
   async function initAuth() {
     if (!sb) { O.authReady = true; render(); return; }
@@ -857,7 +858,7 @@
       loadProfile();
       startHome();
       loadTop();
-      if (pendingCode && !O.recovery) { const c = pendingCode; setPending(''); openGame(c, true); return; }
+      if (Pending.code && !O.recovery) { const c = Pending.code; setPending(''); openGame(c, true); return; }
       go(O.recovery ? 'auth' : routeFromHash() || 'play');
       return;
     }
@@ -1405,7 +1406,7 @@
     E.resign(st, cfg, p);
     bumpScore(Lc.score, st);
     saveGame(st, cfg, Lc.score, { gameNo: st.gameNo });
-    busy = false;
+    Turn.busy = false;
     render();
   }
 
@@ -1511,7 +1512,7 @@
       if (g.cfg.secret) return seatDone(me) ? '' : 'o' + st.gameNo + 'r' + st.round;
       return st.turn === me ? 'o' + st.gameNo + 'm' + st.moves : '';
     }
-    if (R.route !== 'play' || busy) return '';
+    if (R.route !== 'play' || Turn.busy) return '';
     if (cfg.secret) return Lc.phase === 'handoff' ? '' : 'l' + st.gameNo + 'r' + st.round + Lc.phase;
     return 'l' + st.gameNo + 'm' + st.moves + 't' + st.turn;
   }
@@ -1532,13 +1533,13 @@
   }
 
   function tickTimer() {
-    if (hold) {
-      if (Date.now() >= hold.until) {
-        const m = hold.m, p = hold.p;
-        hold = null;
+    if (Turn.hold) {
+      if (Date.now() >= Turn.hold.until) {
+        const m = Turn.hold.m, p = Turn.hold.p;
+        Turn.hold = null;
         sendMove(m, p);
       } else if (R.route === 'play' || R.route === 'game') {
-        const left = Math.ceil((hold.until - Date.now()) / 1000);
+        const left = Math.ceil((Turn.hold.until - Date.now()) / 1000);
         const btn = $('confirm');
         btn.hidden = false;
         btn.disabled = false;
@@ -1758,7 +1759,7 @@
     // Отправленный, но ещё не раскрытый ход рисуем призраком: видно, куда вы сходили.
     const pend = pendingMove(st, cfg);
     // Пока идёт отсчёт, показываем, что именно задумано.
-    const intent = hold ? hold.m : null;
+    const intent = Turn.hold ? Turn.hold.m : null;
     const me = mySeat() || p;
     const aim = (kind) => kind === 'shot' || kind === 'unanchor';
     const sign = (kind) => kind === 'anchor' || kind === 'moveAnchor';
@@ -1867,7 +1868,7 @@
       if (ui.action === 'anchor') return anchorHint;
       return 'Ваш ход.';
     }
-    if (busy) return 'Бот думает…';
+    if (Turn.busy) return 'Бот думает…';
     if (cfg.secret && Lc.phase === 'handoff') return 'Ход Игрока 1 спрятан.';
     if (ui.sel !== null) return pickHint;
     if (ui.action === 'shot') return shotHint;
@@ -1970,7 +1971,7 @@
     let note = O.authMsg, noteErr = O.authErr;
     if (!configured) { note = 'Онлайн-режим ещё не настроен: впишите адрес проекта и ключ Supabase в файл config.js (см. README).'; noteErr = true; }
     else if (!sb) { note = 'Не загрузилась библиотека Supabase. Проверьте, что папка vendor лежит рядом с index.html.'; noteErr = true; }
-    else if (!note && pendingCode && view === 'login') note = 'Войдите или зарегистрируйтесь, чтобы открыть партию ' + pendingCode + '.';
+    else if (!note && Pending.code && view === 'login') note = 'Войдите или зарегистрируйтесь, чтобы открыть партию ' + Pending.code + '.';
     setNote($('authNote'), note, noteErr);
     // Без сервера остаётся только игра с ботом: иначе страница превратилась бы в тупик.
     $('guestRow').hidden = !!sb;
@@ -2265,7 +2266,7 @@
       $('stepLive').hidden = ui.view < 0;
     }
     const p = frame ? 0 : picker();
-    const human = !frame && !!p && isHuman(p) && !busy;
+    const human = !frame && !!p && isHuman(p) && !Turn.busy;
     if (frame) renderFrame(st, frame);
     else renderBoard(st, cfg, p, human);
     renderCover();
@@ -2321,11 +2322,11 @@
     }
 
     const cbtn = $('confirm');
-    if (hold) {
+    if (Turn.hold) {
       cbtn.hidden = false;
       cbtn.disabled = false;
       cbtn.className = 'btn go';
-      cbtn.textContent = 'Подтвердить · ' + Math.max(1, Math.ceil((hold.until - Date.now()) / 1000));
+      cbtn.textContent = 'Подтвердить · ' + Math.max(1, Math.ceil((Turn.hold.until - Date.now()) / 1000));
       const back = $('cancelMove');
       back.hidden = false;
       back.className = 'btn no';
@@ -2648,15 +2649,15 @@
   $('stepFwd').addEventListener('click', () => stepView(1));
   $('stepLive').addEventListener('click', () => { ui.view = -1; render(); });
   $('backLive').addEventListener('click', closeArchive);
-  $('confirm').addEventListener('click', () => { if (hold) sendHoldNow(); else confirmMove(); });
-  $('cancelMove').addEventListener('click', () => { if (hold) dropHold(); else cancelMove(); });
+  $('confirm').addEventListener('click', () => { if (Turn.hold) sendHoldNow(); else confirmMove(); });
+  $('cancelMove').addEventListener('click', () => { if (Turn.hold) dropHold(); else cancelMove(); });
   $('newGame').addEventListener('click', () => { if (!online()) newLocal(); });
   $('actPlace').addEventListener('click', () => setAction('place'));
   $('actShot').addEventListener('click', () => setAction(ui.action === 'shot' ? 'place' : 'shot'));
   $('actTake').addEventListener('click', () => {
     const st = curSt(), cfg = curCfg(), p = picker();
     // Возврат якоря не стоит хода: это отметка к ходу, а не сам ход.
-    if (!st || !p || !isHuman(p) || busy) return;
+    if (!st || !p || !isHuman(p) || Turn.busy) return;
     if (ui.take >= 0) { ui.take = -1; render(); return; }
     const ripe = E.ripeAnchor(st, cfg, p);
     if (ripe < 0) return;

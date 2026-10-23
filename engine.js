@@ -140,11 +140,15 @@ const MAGNET_CD = 2;   // ходов отдыха, если два якоря с
       }
       return best;
     },
+    // Забираем сам якорь, а фишка остаётся на поле обычной: с этого момента она
+    // стареет вместе с остальными, поэтому встаёт в конец очереди памяти.
     takeAnchor(st, cfg, p, which, ev) {
       const i = typeof which === 'number' && which >= 0 ? which : E.ripeAnchor(st, cfg, p);
       if (i < 0 || !E.canUnanchor(st, cfg, p, i)) return false;
-      E.remove(st, i);
+      st.anchors = st.anchors.filter((x) => x !== i);
+      if (st.anchorSet) delete st.anchorSet[i];
       st.anchorLeft[p]++;
+      if (st.cells[i] === p && !st.q[p].includes(i)) st.q[p].push(i);
       ev.push({ k: 'unanchor', p, i });
       return true;
     },
