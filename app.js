@@ -20,7 +20,7 @@
     { id: 'plum', name: 'Слива', nom: 'сливовые', gen: 'сливовых' },
     { id: 'violet', name: 'Фиалка', nom: 'фиолетовые', gen: 'фиолетовых' },
     { id: 'lemon', name: 'Лимон', nom: 'лимонные', gen: 'лимонных' },
-    { id: 'graphite', name: 'Графит', nom: 'графитовые', gen: 'графитовых' },
+    { id: 'graphite', name: 'Сталь', nom: 'стальные', gen: 'стальных' },
     { id: 'snow', name: 'Белый', nom: 'белые', gen: 'белых' }
   ];
   // a и b — только для кружка-образца в настройках; сами цвета задаёт styles.css.
@@ -1546,9 +1546,6 @@
     const root = document.documentElement.style;
     root.setProperty('--p1', 'var(--c-' + lookOf(1).color + ')');
     root.setProperty('--p2', 'var(--c-' + lookOf(2).color + ')');
-    // Белой фишке в светлой теме нужна кромка: css находит её по этим отметкам.
-    document.documentElement.setAttribute('data-p1', lookOf(1).color);
-    document.documentElement.setAttribute('data-p2', lookOf(2).color);
 
   }
   function cellLabel(st, i, v) {
@@ -2280,7 +2277,9 @@
     if (E.anchorOn(cfg)) {
       const on = E.anchorsOf(st, p);
       const where = on.length ? on.map((i) => cellName(st, i)).join(', ') : 'нет на поле';
-      add('anchor', on.length + (st.anchorLeft[p] ? '+' + st.anchorLeft[p] : ''), 'Якоря: ' + where + (st.anchorLeft[p] ? ', в запасе ' + st.anchorLeft[p] : ''), !on.length && !st.anchorLeft[p]);
+      // Якорей всегда двое: на доске и в запасе вместе. Показываем «на доске из всех».
+      const all = on.length + (st.anchorLeft[p] || 0);
+      add('anchor', on.length + '/' + all, 'Якорей на доске: ' + on.length + ' из ' + all + ' (' + where + ')', !on.length);
     }
     if (cfg.bank && st.bank) {
       const left = st.bank[p] || 0;
@@ -2388,7 +2387,7 @@
           }).join('') +
         '</div>' +
         '<div class="shapes" role="group" aria-label="Фигура">' +
-          SHAPES.map((s) => '<button type="button" class="shp" data-shape="' + s.id + '" title="' + s.name + '" aria-label="' + s.name + '" aria-pressed="' + (bk.look.shape === s.id) + '"><span class="stone sh-' + s.id + (bk.look.color === 'snow' ? ' edge' : '') + '" style="--pc: var(--c-' + bk.look.color + ')"></span></button>').join('') +
+          SHAPES.map((s) => '<button type="button" class="shp" data-shape="' + s.id + '" title="' + s.name + '" aria-label="' + s.name + '" aria-pressed="' + (bk.look.shape === s.id) + '"><span class="stone sh-' + s.id + '" style="--pc: var(--c-' + bk.look.color + ')"></span></button>').join('') +
         '</div>' +
       '</div>'
     ).join('');
