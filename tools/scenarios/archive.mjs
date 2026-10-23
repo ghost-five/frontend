@@ -17,7 +17,9 @@ for (const [a, b] of [[30, 100], [31, 115], [32, 130], [33, 145]]) {
 }
 await wait(700);
 say('партия окончена', await t.eval("document.querySelector('.result h2') ? document.querySelector('.result h2').textContent : 'нет'"));
-say('в архиве записей', await t.eval("JSON.parse(localStorage.getItem('ghost5-archive') || '[]').length"));
+say('записей в базе', await t.eval("(() => { const db = JSON.parse(localStorage.getItem('mockdb')); return db.history.length + ', владелец: ' + db.history.map(r => r.owner).join(','); })()"));
+say('ходов в записи', await t.eval("(() => { const r = JSON.parse(localStorage.getItem('mockdb')).history[0]; return 'кадров ' + r.frames.length + ', строк журнала ' + r.log.length; })()"));
+say('в браузере пусто', await t.eval("JSON.parse(localStorage.getItem('ghost5-archive') || '[]').length"));
 await t.eval("document.querySelector('[data-act=see-board]').click()"); await wait(300);
 await t.eval("document.querySelector('[data-act=archive]').click()"); await wait(600);
 say('список архива', await t.eval("[...document.querySelectorAll('#archive li')].map(x=>x.textContent.replace(/\\s+/g,' ')).join(' | ')"));
@@ -27,6 +29,11 @@ await t.eval("document.getElementById('stepFwd').click()"); await wait(400);
 say('шаг вперёд', await t.eval("document.getElementById('rewindAt').textContent + ', фишек ' + document.querySelectorAll('.board .stone').length"));
 await t.eval("document.getElementById('backLive').click()"); await wait(500);
 say('вернулись к живой партии', await t.eval("document.getElementById('backLive').hidden + ', можно ходить: ' + (document.querySelectorAll('.cell.ok').length > 0)"));
+// Чужую историю второй игрок видеть не должен.
+await t.goto('http://localhost:8778/?as=2'); await wait(1500);
+await t.eval("document.querySelector('[data-act=archive]') && document.querySelector('[data-act=archive]').click()"); await wait(800);
+say('у второго игрока', await t.eval("[...document.querySelectorAll('#archive li')].map(x=>x.textContent.replace(/\\s+/g,' ').trim()).join(' | ') || 'пусто'"));
+
 const errs = (await t.logs()).filter(e => e.method === 'Runtime.exceptionThrown');
 console.log('ошибки:', errs.length ? JSON.stringify(errs.map(e=>e.params.exceptionDetails?.exception?.description)).slice(0,300) : 'нет');
 proc.kill(); process.exit(0);

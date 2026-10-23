@@ -7,7 +7,12 @@
   };
   const me = USERS[new URLSearchParams(location.search).get('as') || '1'];
 
-  const load = () => JSON.parse(localStorage.getItem(DB_KEY) || '{"profiles":[],"friendships":[],"games":[],"moves":[]}');
+  const TABLES = ['profiles', 'friendships', 'games', 'moves', 'history'];
+  const load = () => {
+    const db = JSON.parse(localStorage.getItem(DB_KEY) || '{}');
+    for (const t of TABLES) if (!db[t]) db[t] = [];
+    return db;
+  };
   const save = (db) => { localStorage.setItem(DB_KEY, JSON.stringify(db)); localStorage.setItem('mocktick', String(Date.now())); };
   const clone = (x) => (x === undefined ? null : JSON.parse(JSON.stringify(x)));
 
@@ -70,7 +75,11 @@
           return { data: this.single ? out[0] || null : out, error: null };
         }
         if (this.op === 'insert') {
-          if (db[this.table].some((r) => r.code && r.code === this.payload.code)) return { data: null, error: { code: '23505', message: 'duplicate key' } };
+          // Код партии уникален только в самих партиях: в истории он повторяется по раундам.
+          if (this.table === 'games' && db.games.some((r) => r.code && r.code === this.payload.code)) {
+            return { data: null, error: { code: '23505', message: 'duplicate key' } };
+          }
+          if (this.table === 'history' && !this.payload.id) this.payload.id = 'h-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
           db[this.table].push(Object.assign({ updated_at: new Date().toISOString() }, this.payload));
           save(db);
           return { data: null, error: null };

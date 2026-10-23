@@ -529,10 +529,6 @@ input:not([type="range"]):focus { outline: 0; border-color: var(--brand); backgr
 .pcard .dots { margin-left: 10px; }
 /* Первая тройка таблицы лидеров: тонкий ободок и подкрашенный рейтинг. */
 .pcard.medal { border-color: color-mix(in srgb, var(--medal) 55%, var(--rule)); }
-.pcard.medal .ico::after {
-  content: ""; position: absolute; inset: -4px; border-radius: 50%;
-  border: 1.5px solid var(--medal);
-}
 .pcard.medal .elo {
   color: var(--medal); border-color: color-mix(in srgb, var(--medal) 45%, transparent);
   background: color-mix(in srgb, var(--medal) 14%, transparent);
@@ -894,6 +890,21 @@ input:not([type="range"]):focus { outline: 0; border-color: var(--brand); backgr
 }
 .cellmenu .minfo + button { margin-top: 4px; border-top: 1px solid var(--rule); border-radius: 0 0 var(--r-sm) var(--r-sm); padding-top: 10px; }
 .cellmenu button small { color: var(--muted); font-size: 12px; }
+/* Памятка про якорь: та же раскладка, но только для чтения. */
+.celltip {
+  position: fixed; z-index: 45; min-width: 240px; max-width: 320px; padding: 6px;
+  background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r);
+  box-shadow: var(--shadow-lg); display: flex; flex-direction: column; gap: 2px;
+  pointer-events: none; animation: popin .12s ease-out;
+}
+.celltip .mhead {
+  padding: 6px 10px 7px; font-family: var(--mono); font-size: 11px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--rule); margin-bottom: 4px;
+}
+.celltip .minfo { display: flex; justify-content: space-between; gap: 14px; padding: 5px 10px; font-size: 12.5px; }
+.celltip .minfo span { font-weight: 600; flex: none; }
+.celltip .minfo small { color: var(--muted); font-size: 12px; text-align: right; }
+
 @keyframes popin { from { opacity: 0; transform: scale(.94); } }
 
 /* ---------- Телефон: играть одной рукой ---------- */

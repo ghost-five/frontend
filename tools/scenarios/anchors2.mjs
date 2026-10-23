@@ -1,30 +1,57 @@
+// Два якоря: меню на якоре зовёт только магнит, памятка всплывает по наведению.
 import { launch, newTab } from '../cdp.mjs';
-const wait = ms => new Promise(r => setTimeout(r, ms));
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const { proc, port } = await launch(9276);
 const t = await newTab(port);
 const say = (n, v) => console.log('·', n, '→', v);
-await t.theme('dark'); await t.size(1280,1050);
-await t.goto('http://localhost:8778/'); await t.eval("localStorage.clear()"); await t.eval("localStorage.setItem('ghost5-settings', JSON.stringify({hold:0}))");
-await t.goto('http://localhost:8778/?as=1'); await wait(900);
-await t.eval("[...document.querySelectorAll('.seg[data-key=opp] button')].find(b=>b.textContent.includes('Вдвоём')).click()"); await wait(400);
-const cell = async i => t.eval(`(() => { const e=document.querySelector('.cell[data-i="${i}"]'); if(!e||!e.classList.contains('ok')) return false; e.click(); return true; })()`);
-const reveal = async () => { if (await t.eval("!!document.querySelector('[data-act=reveal]')")) { await t.eval("document.querySelector('[data-act=reveal]').click()"); await wait(200); } };
-const go = async i => { await cell(i); await wait(120); await t.eval("document.getElementById('confirm').click()"); await wait(350); };
-say('якорей в запасе', await t.eval("document.getElementById('actAnchor').textContent"));
-// два якоря игроку 1
-await t.eval("document.getElementById('actAnchor').click()"); await wait(200);
-await go(40); await reveal(); await go(150); await wait(600);
-await t.eval("document.getElementById('actAnchor').click()"); await wait(200);
-await go(44); await reveal(); await go(151); await wait(700);
-say('навыки игрока 1', await t.eval("document.getElementById('skills1').textContent"));
-say('кнопка якоря спряталась', await t.eval("document.getElementById('actAnchor').hidden"));
-say('кнопки якоря', await t.eval("[...document.querySelectorAll('#tools .chip')].filter(b=>!b.hidden).map(b=>b.textContent + (b.disabled?' (нельзя)':'')).join(' | ')"));
-// щит: фишка рядом с якорем не считается в память
-await go(41); await reveal(); await go(152); await wait(700);
-say('фишки в лимите', await t.eval("document.getElementById('skills1').textContent"));
-// магнит
-await t.eval("document.getElementById('actMagnet').click()"); await wait(300);
-say('цели магнита подсвечены', await t.eval("document.querySelectorAll('.cell.target').length + ', якоря-источники: ' + document.querySelectorAll('.cell.from').length"));
-const errs = (await t.logs()).filter(e => e.method === 'Runtime.exceptionThrown');
-console.log('ошибки:', errs.length ? JSON.stringify(errs.map(e=>e.params.exceptionDetails?.exception?.description)).slice(0,300) : 'нет');
+
+await t.theme('dark'); await t.size(1340, 1050);
+await t.goto('http://localhost:8778/'); await t.eval("localStorage.clear()");
+await t.eval("localStorage.setItem('ghost5-settings', JSON.stringify({ opp: 'friend', win: 4 }))");
+await t.goto('http://localhost:8778/?as=1'); await wait(1500);
+
+const click = (sel) => t.eval(`document.querySelector('${sel}').click()`);
+const cell = (i) => t.eval(`document.querySelector('.cell[data-i="${i}"]').click()`);
+const reveal = async () => {
+  if (await t.eval("!!document.querySelector('[data-act=reveal]')")) { await click('[data-act=reveal]'); await wait(200); }
+};
+const go = async (a, b) => {
+  await cell(a); await wait(120); await click('#confirm'); await wait(250); await reveal();
+  await cell(b); await wait(120); await click('#confirm'); await wait(400);
+};
+const menu = (i) => t.eval(`(() => {
+  const c = document.querySelector('.cell[data-i="${i}"]');
+  const r = c.getBoundingClientRect();
+  c.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: r.left + 5, clientY: r.top + 5 }));
+  const box = document.getElementById('cellMenu');
+  return box.hidden ? 'меню не открылось' : [...box.children].map((e) => e.textContent.replace(/\\s+/g, ' ').trim()).join(' | ');
+})()`);
+
+// Два якоря первому игроку, второй ставит фишки в стороне.
+await click('#actAnchor'); await wait(150);
+await go(40, 150);
+await click('#actAnchor'); await wait(150);
+await go(42, 156);
+say('якоря первого', await t.eval("[...document.querySelectorAll('.cell.anchored')].map(e => e.dataset.i).join(',')"));
+say('в карточке', await t.eval("[...document.querySelectorAll('#card1 .bit')].map(b => b.textContent).join(' ')"));
+
+// Фишка между якорями — магниту есть что тянуть.
+await go(41, 162);
+say('меню на своём якоре', await menu(40));
+await t.eval("document.querySelector('#cellMenu button').click()"); await wait(300);
+say('тянем именно от него', await t.eval("[...document.querySelectorAll('.cell.from')].map(e => e.dataset.i).join(',')"));
+say('цели магнита', await t.eval("[...document.querySelectorAll('.cell.target')].map(e => e.dataset.i).join(',')"));
+say('кнопка магнита', await t.eval("document.getElementById('actMagnet').textContent"));
+
+// Памятка по наведению.
+await t.eval(`(() => {
+  const c = document.querySelector('.cell[data-i="42"]');
+  const r = c.getBoundingClientRect();
+  c.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse', clientX: r.left + 5, clientY: r.top + 5 }));
+})()`);
+await wait(800);
+say('памятка про якорь', await t.eval("(() => { const b = document.getElementById('cellTip'); return b.hidden ? 'не появилась' : b.textContent.replace(/\\s+/g, ' ').trim().slice(0, 150); })()"));
+
+const errs = (await t.logs()).filter((e) => e.method === 'Runtime.exceptionThrown');
+console.log('ошибки:', errs.length ? JSON.stringify(errs.map((e) => e.params.exceptionDetails?.exception?.description)).slice(0, 300) : 'нет');
 proc.kill(); process.exit(0);

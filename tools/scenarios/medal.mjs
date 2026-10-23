@@ -24,6 +24,11 @@ await tab(t1,'По сети'); await wait(1500);
 say('рейтинг после партии', await t1.eval("[...document.querySelectorAll('.pcard .elo')].map(e=>e.textContent).join(' / ')"));
 say('медали', await t1.eval("[...document.querySelectorAll('.pcard')].map(c=>c.className.replace('pcard ','')).join(' | ')"));
 await t1.screenshot('medal.png');
+say('раунд лёг в историю', await t1.eval(`(() => {
+  const h = (JSON.parse(localStorage.getItem('mockdb') || '{}').history || []);
+  return h.length + ' зап.: ' + h.map((r) => r.owner + ' ' + r.code + ' раунд ' + r.game_no + ' ' + r.mode).join(' | ');
+})()`));
+say('во второй вкладке', await t2.eval("(JSON.parse(localStorage.getItem('mockdb') || '{}').history || []).map(r => r.owner).join(',')"));
 const errs = [...(await t1.logs()), ...(await t2.logs())].filter(e => e.method === 'Runtime.exceptionThrown');
 console.log('ошибки:', errs.length ? JSON.stringify(errs.map(e=>e.params.exceptionDetails?.exception?.description)).slice(0,300) : 'нет');
 proc.kill(); process.exit(0);

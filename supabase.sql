@@ -502,6 +502,43 @@ create policy "moves update own seat" on public.moves
   using (seat = public.seat_of(game_code))
   with check (seat = public.seat_of(game_code));
 
+-- ---------- История сыгранных раундов ----------
+-- Каждый доигранный раунд ложится сюда отдельной записью и виден только своему
+-- владельцу: на общем устройстве сосед по аккаунту чужих партий не увидит.
+
+create table if not exists public.history (
+  id uuid primary key default gen_random_uuid(),
+  owner uuid not null references auth.users (id) on delete cascade,
+  played_at timestamptz not null default now(),
+  code text,
+  game_no int not null default 1,
+  mode text not null default 'local',
+  cfg jsonb not null,
+  frames jsonb not null,
+  log jsonb not null,
+  winner int not null default 0,
+  reason text,
+  score jsonb,
+  names jsonb
+);
+create index if not exists history_owner_idx on public.history (owner, played_at desc);
+-- Один и тот же сетевой раунд не должен попасть в историю дважды.
+create unique index if not exists history_round_unique on public.history (owner, code, game_no) where code is not null;
+
+alter table public.history enable row level security;
+
+drop policy if exists "history read own" on public.history;
+create policy "history read own" on public.history
+  for select to authenticated using (owner = auth.uid());
+
+drop policy if exists "history write own" on public.history;
+create policy "history write own" on public.history
+  for insert to authenticated with check (owner = auth.uid());
+
+drop policy if exists "history delete own" on public.history;
+create policy "history delete own" on public.history
+  for delete to authenticated using (owner = auth.uid());
+
 -- ---------- Обновления в реальном времени ----------
 
 do $$

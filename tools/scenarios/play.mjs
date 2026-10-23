@@ -88,6 +88,30 @@ await step('вкладка 1: раунд открылся', async () => { await 
 await step('журнал партии (вкладка 1)', () => t1.eval("T.list('log').join(' | ')"));
 await step('фишки на поле', () => t1.eval("document.querySelectorAll('.board .stone').length"));
 
+// Доигрываем раунд: первый собирает четвёрку, второй ставит фишки в стороне.
+const pair = async (a, b) => {
+  await t1.eval('T.clickCell(' + a + ')'); await t1.eval("T.click('#confirm')"); await wait(900);
+  await t2.eval('T.clickCell(' + b + ')'); await t2.eval("T.click('#confirm')"); await wait(4000);
+};
+const away = [150, 156, 162, 168];
+for (let k = 0; k < 4; k++) await pair(40 + k, away[k]);
+await wait(2500);
+await step('вкладка 1: раунд доигран', () => t1.eval('T.cover()'));
+await step('раунд в истории вкладки 1', () => t1.eval(`(() => {
+  const h = (JSON.parse(localStorage.getItem('mockdb') || '{}').history || []);
+  return h.length + ' зап.: ' + h.map((r) => r.owner + ' · ' + r.mode + ' · раунд ' + r.game_no + ' · кадров ' + r.frames.length).join(' | ');
+})()`));
+await step('у вкладки 2 своя запись', () => t2.eval(`(() => {
+  const h = (JSON.parse(localStorage.getItem('mockdb') || '{}').history || []);
+  return h.map((r) => r.owner).join(',') || 'пусто';
+})()`));
+await step('в разделе «История» вкладки 1', async () => {
+  await t1.eval("document.querySelector('[data-act=see-board]') && document.querySelector('[data-act=see-board]').click()"); await wait(400);
+  await t1.eval("T.click('[data-act=archive]')"); await wait(1200);
+  return t1.eval("[...document.querySelectorAll('#archive li')].map(x => x.textContent.replace(/\\s+/g, ' ').trim()).join(' | ') || 'пусто'");
+});
+await t1.eval("T.clickText('.tab','По сети')"); await wait(800);
+
 await t1.screenshot('game-dark.png');
 await t2.eval("T.clickText('.tab','Вид')"); await wait(400);
 await t2.screenshot('look-dark.png');

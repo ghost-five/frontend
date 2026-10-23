@@ -15,6 +15,7 @@
   // Якорей на игрока, дальность магнита и срок следа, который остаётся после сдвига.
   const ANCHORS = 2;
   const MAGNET_RANGE = 3;
+const MAGNET_CD = 2;   // ходов отдыха, если два якоря схватились за одну фишку
   const ECHO_TTL = 1;
   // Сколько ходов подряд надо уложиться в основное время, чтобы запас вернулся.
   const BANK_STREAK = 3;
@@ -25,6 +26,7 @@
 
   const E = {
     ANCHOR_HOLD,
+    MAGNET_CD,
     ANCHORS,
     MAGNET_RANGE,
     MISS_LIMIT,
@@ -39,7 +41,7 @@
         n, cells: new Array(n * n).fill(0), q: { 1: [], 2: [] }, anchors: [], anchorSet: {},
         anchorLeft: { 1: ANCHORS, 2: ANCHORS }, shots: { 1: cfg.shots, 2: cfg.shots }, caps: { 1: 0, 2: 0 },
         walls: [], scar: [], misses: { 1: 0, 2: 0 }, bank: { 1: cfg.bank || 0, 2: cfg.bank || 0 },
-        clean: { 1: 0, 2: 0 }, frames: [],
+        clean: { 1: 0, 2: 0 }, frames: [], magnetCd: { 1: 0, 2: 0 },
         round: 1, moves: 0, turn: starter, starter, gameNo,
         over: false, winner: 0, winLine: [], winReason: '', last: [], log: [],
         fx: { fresh: [], gone: [], burn: -1 }
@@ -265,7 +267,7 @@
       E.log(st, tag, [{ k: 'result', w, reason: info.reason }], 'win');
     },
 
-    validTarget(st, cfg, p, i, kind) {
+    validTarget(st, cfg, p, i, kind, from0) {
       if (typeof i !== 'number' || i < 0 || i >= st.cells.length) return false;
       const v = st.cells[i];
       if (kind === 'place') return v === 0;
@@ -274,7 +276,7 @@
       if (kind === 'shot') return (v === 3 - p && !st.anchors.includes(i)) || (!!cfg.secret && v === 0);
       if (kind === 'unanchor') return v === p && st.anchors.includes(i) && E.canUnanchor(st, cfg, p, i);
       if (kind === 'moveAnchor') return E.canMoveAnchor(st, cfg, p, i);
-      if (kind === 'magnet') return !!E.magnetPlan(st, cfg, p, i);
+      if (kind === 'magnet') return E.magnetCool(st, p) === 0 && !!E.magnetPlan(st, cfg, p, i, from0);
       return false;
     },
 
@@ -335,10 +337,13 @@
 
     // ---------- Магнит ----------
     // Якорь тянет к себе фишки по одному лучу: до двух своих и двух чужих, всего четыре.
-    magnetPlan(st, cfg, p, to) {
+    // from — якорь, который выбрал игрок; без него годится любой свой.
+    magnetPlan(st, cfg, p, to, from0) {
       if (!E.anchorOn(cfg)) return null;
       const n = st.n;
-      for (const from of E.anchorsOf(st, p)) {
+      const pick = typeof from0 === 'number' && from0 >= 0 ? [from0] : E.anchorsOf(st, p);
+      for (const from of pick) {
+        if (!E.anchorsOf(st, p).includes(from)) continue;
         const r0 = (from / n) | 0, c0 = from % n;
         for (const [dr, dc] of RAYS) {
           const line = [];
@@ -357,10 +362,13 @@
       return null;
     },
     // Есть ли вообще кого притягивать: нужен хотя бы один луч с фишкой и без стены.
-    canMagnet(st, cfg, p) {
-      if (!E.anchorOn(cfg)) return false;
+    magnetCool: (st, p) => (st.magnetCd && st.magnetCd[p]) || 0,
+    canMagnet(st, cfg, p, from0) {
+      if (!E.anchorOn(cfg) || E.magnetCool(st, p) > 0) return false;
       const n = st.n;
-      for (const from of E.anchorsOf(st, p)) {
+      const pick = typeof from0 === 'number' && from0 >= 0 ? [from0] : E.anchorsOf(st, p);
+      for (const from of pick) {
+        if (!E.anchorsOf(st, p).includes(from)) continue;
         const r0 = (from / n) | 0, c0 = from % n;
         for (const [dr, dc] of RAYS) {
           let wall = false, stone = false;
@@ -376,12 +384,13 @@
       }
       return false;
     },
-    doMagnet(st, cfg, p, to, ev) {
-      const plan = E.magnetPlan(st, cfg, p, to);
-      if (!plan) return false;
+    // Какие фишки захватит магнит и куда они поедут. Поле не трогает.
+    magnetGrab(st, cfg, p, to, from0) {
+      const plan = E.magnetPlan(st, cfg, p, to, from0);
+      if (!plan) return null;
       const { from, line } = plan;
       let mine = 2, foe = 2, left = 4, slot = 0;
-      const moves = [];
+      const moves = [], cells = [];
       for (const cell of line) {
         const v = st.cells[cell];
         if (v === 0) continue;
@@ -390,13 +399,24 @@
         const own = v === p;
         if (left <= 0 || (own ? mine : foe) <= 0) break;
         const target = line[slot];
-        if (target !== cell) { E.shift(st, cell, target); moves.push([cell, target]); }
+        cells.push(cell);
+        if (target !== cell) moves.push([cell, target]);
         slot++; left--;
         if (own) mine--; else foe--;
       }
-      st.fx.slide = (st.fx.slide || []).concat(moves);
-      ev.push({ k: 'magnet', p, i: to, from, n: moves.length });
+      return { from, line, cells, moves };
+    },
+    doMagnet(st, cfg, p, to, ev, from0) {
+      const grab = E.magnetGrab(st, cfg, p, to, from0);
+      if (!grab) return false;
+      for (const [a, b] of grab.moves) E.shift(st, a, b);
+      st.fx.slide = (st.fx.slide || []).concat(grab.moves);
+      ev.push({ k: 'magnet', p, i: to, from: grab.from, n: grab.moves.length });
       return true;
+    },
+    // Магнит остывает: по ходу за раз.
+    magnetTick(st, p) {
+      if (st.magnetCd && st.magnetCd[p] > 0) st.magnetCd[p]--;
     },
 
     // Тайный ход: оба хода открываются одновременно.
@@ -413,7 +433,7 @@
       const claim = (p, m) => (putting(m) ? m.i : m.kind === 'moveAnchor' && E.canMoveAnchor(st, cfg, p, m.i) ? m.i : -1);
       const c1 = claim(1, m1), c2 = claim(2, m2);
       let kind = '', newWall = -1;
-      let echo = -1;
+      let echo = -1, clash = false;
       if (c1 >= 0 && c1 === c2) {
         // Оба метили в одну клетку: она выгорает, и ни фишка, ни якорь туда не попадают.
         const hitAnchor = m1.kind === 'moveAnchor' || m2.kind === 'moveAnchor';
@@ -445,13 +465,26 @@
             ev.push({ k: 'hit', p, i: m.i, guessed });
           } else ev.push({ k: 'miss', p, i: m.i });
         }
+        // Два магнита за один ход могут схватиться за одну фишку: тогда якоря
+        // сцепляются, ни одна фишка не едет, а магнит у обоих остывает.
+        if (m1.kind === 'magnet' && m2.kind === 'magnet') {
+          const g1 = E.magnetGrab(st, cfg, 1, m1.i, m1.from), g2 = E.magnetGrab(st, cfg, 2, m2.i, m2.from);
+          const both = g1 && g2 ? g1.cells.filter((c) => g2.cells.includes(c)) : [];
+          if (both.length) {
+            clash = true;
+            st.magnetCd = { 1: MAGNET_CD + 1, 2: MAGNET_CD + 1 };
+            ev.push({ k: 'magnetClash', i: both[0], n: both.length, cd: MAGNET_CD });
+          }
+        }
         for (const [p, m] of [[1, m1], [2, m2]]) {
           if (m.kind === 'unanchor') E.takeAnchor(st, cfg, p, m.i, ev);
           else if (m.kind === 'moveAnchor') { const was = E.moveAnchor(st, cfg, p, m.i, ev, m.from); if (was !== false) echo = was; }
-          else if (m.kind === 'magnet') E.doMagnet(st, cfg, p, m.i, ev);
+          else if (m.kind === 'magnet' && !clash) E.doMagnet(st, cfg, p, m.i, ev, m.from);
         }
         // Снятие якоря ходом не считается, поэтому в «не успел сходить» оно не входит.
         const acted = new Set(ev.filter((e) => e.k !== 'unanchor').map((e) => e.p));
+        // Сцепившиеся магниты — это всё-таки сделанный ход, а не пропуск.
+        if (clash) { acted.add(1); acted.add(2); }
         for (const [p, m] of [[1, m1], [2, m2]]) {
           if (!acted.has(p) && m.kind !== 'unanchor') ev.push({ k: 'pass', p });
         }
@@ -465,6 +498,7 @@
       const broken = E.wallTick(st, newWall >= 0 ? newWall : echo);
       if (broken) ev.push({ k: 'wallGone', n: broken });
       E.countMiss(st, ev);
+      for (const p of [1, 2]) E.magnetTick(st, p);
       for (const [p, m] of [[1, m1], [2, m2]]) E.bankTick(st, cfg, p, m, ev);
       E.log(st, tag, ev, kind);
       E.snap(st, tag);
@@ -514,12 +548,13 @@
         E.moveAnchor(st, cfg, p, m.i, ev, m.from);
       } else if (m.kind === 'magnet') {
         st.last = [];
-        E.doMagnet(st, cfg, p, m.i, ev);
+        E.doMagnet(st, cfg, p, m.i, ev, m.from);
       } else {
         // Ход пропущен: кончилось время.
         ev.push({ k: 'pass', p });
       }
       E.countMiss(st, ev);
+      E.magnetTick(st, p);
       E.bankTick(st, cfg, p, m, ev);
       if (ev.length) E.log(st, tag, ev);
       E.snap(st, tag);
