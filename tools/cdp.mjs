@@ -1,10 +1,13 @@
 // Маленький драйвер Chrome по CDP: запустить, открыть вкладку, выполнить JS, снять экран.
 import { spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+// Снимки складываем в tools/shots, чтобы не сорить в папке игры.
+const SHOTS = join(dirname(fileURLToPath(import.meta.url)), 'shots');
 
 export async function launch(port = 9222) {
   const dir = mkdtempSync(join(tmpdir(), 'ghost-chrome-'));
@@ -63,9 +66,11 @@ function connect(wsUrl) {
       return r.result.value;
     },
     async screenshot(path, full = false) {
+      const out = isAbsolute(path) ? path : join(SHOTS, path);
+      mkdirSync(dirname(out), { recursive: true });
       const r = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: full });
-      writeFileSync(path, Buffer.from(r.data, 'base64'));
-      return path;
+      writeFileSync(out, Buffer.from(r.data, 'base64'));
+      return out;
     },
     async size(width, height, mobile = false) {
       await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 2, mobile });
